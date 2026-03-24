@@ -27,7 +27,7 @@ const PermissionRequestSchema = z.object({
 export class PermissionRelay {
   private alwaysAllow: Set<string>
   private allowListPath: string
-  private pendingVerdicts = new Map<string, (behavior: 'allow' | 'deny') => void>()
+  private pendingVerdicts = new Map<string, { resolve: (behavior: 'allow' | 'deny') => void; toolName: string }>()
 
   constructor(
     private agentId: string,
@@ -89,12 +89,17 @@ export class PermissionRelay {
 
       // Wait for verdict from hub (will be resolved by handleVerdict)
       const behavior = await new Promise<'allow' | 'deny'>((resolve) => {
-        this.pendingVerdicts.set(params.request_id, resolve)
+        this.pendingVerdicts.set(params.request_id, { resolve, toolName: params.tool_name })
         // Timeout: auto-deny after 5 minutes
         setTimeout(() => {
           if (this.pendingVerdicts.has(params.request_id)) {
             this.pendingVerdicts.delete(params.request_id)
             resolve('deny')
+            this.socketClient.send({
+              type: 'permission_timeout',
+              agentId: this.agentId,
+              requestId: params.request_id,
+            })
             console.log(`[spoke:${this.agentId}] Permission timeout: ${params.request_id}`)
           }
         }, 5 * 60 * 1000)
@@ -109,11 +114,18 @@ export class PermissionRelay {
   }
 
   /** Called when hub sends a verdict back */
-  handleVerdict(requestId: string, behavior: 'allow' | 'deny') {
-    const resolve = this.pendingVerdicts.get(requestId)
-    if (resolve) {
+  handleVerdict(requestId: string, behavior: 'allow' | 'deny' | 'always', toolName?: string) {
+    const pending = this.pendingVerdicts.get(requestId)
+    if (pending) {
       this.pendingVerdicts.delete(requestId)
-      resolve(behavior)
+      if (behavior === 'always') {
+        const tool = toolName || pending.toolName
+        this.addAlwaysAllow(tool)
+        console.log(`[spoke:${this.agentId}] Always-allow added: ${tool}`)
+        pending.resolve('allow')
+      } else {
+        pending.resolve(behavior)
+      }
     } else {
       console.log(`[spoke:${this.agentId}] Verdict for unknown request: ${requestId}`)
     }

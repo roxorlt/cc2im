@@ -12,7 +12,15 @@ export interface HubToSpokeMessage {
 export interface HubToSpokePermission {
   type: 'permission_verdict'
   requestId: string
-  behavior: 'allow' | 'deny'
+  behavior: 'allow' | 'deny' | 'always'
+  toolName?: string
+}
+
+// Spoke → Hub: permission 超时通知
+export interface SpokeToHubPermissionTimeout {
+  type: 'permission_timeout'
+  agentId: string
+  requestId: string
 }
 
 // Spoke → Hub: 回复微信消息
@@ -42,7 +50,7 @@ export interface SpokeToHubStatus {
 
 export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission
 
-export type SpokeToHub = SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus
+export type SpokeToHub = SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout
 
 // Agent 配置
 export interface AgentConfig {

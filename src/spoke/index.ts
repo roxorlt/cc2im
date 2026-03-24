@@ -74,7 +74,7 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
       break
     }
     case 'permission_verdict': {
-      permissionRelay.handleVerdict(msg.requestId, msg.behavior)
+      permissionRelay.handleVerdict(msg.requestId, msg.behavior, msg.toolName)
       break
     }
   }

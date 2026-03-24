@@ -87,6 +87,14 @@ export async function startHub() {
         console.log(`[hub] Agent ${agentId} status: ${msg.status}`)
         break
       }
+      case 'permission_timeout': {
+        const idx = pendingPermissions.findIndex((p) => p.requestId === msg.requestId)
+        if (idx >= 0) {
+          pendingPermissions.splice(idx, 1)
+          console.log(`[hub] Permission expired: ${msg.requestId} (removed from queue)`)
+        }
+        break
+      }
     }
   })
 
@@ -112,13 +120,14 @@ export async function startHub() {
 
         const pending = pendingPermissions.shift() // FIFO
         if (pending) {
+          const behavior = isAlways ? 'always' : isAllow ? 'allow' : 'deny'
           socketServer.send(pending.agentId, {
             type: 'permission_verdict',
             requestId: pending.requestId,
-            behavior: isAllow ? 'allow' : 'deny',
+            behavior,
+            toolName: pending.toolName,
           })
-          console.log(`[hub] Permission verdict: ${pending.requestId} → ${isAllow ? 'allow' : 'deny'}`)
-          // TODO: always-allow persistence (Task 4 spoke-side)
+          console.log(`[hub] Permission verdict: ${pending.requestId} → ${behavior}`)
           return
         }
       }
