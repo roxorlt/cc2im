@@ -166,8 +166,11 @@ function buildMessageContent(msg: any): string {
   return `[微信 ${msg.userId}] ${msg.text}`
 }
 
-// Run if executed directly
-startHub().catch((err) => {
-  console.error(`[hub] Fatal: ${err.message}`)
-  process.exit(1)
-})
+// Run if executed directly (not imported)
+const isDirectRun = process.argv[1]?.includes('hub/index')
+if (isDirectRun) {
+  startHub().catch((err) => {
+    console.error(`[hub] Fatal: ${err.message}`)
+    process.exit(1)
+  })
+}
