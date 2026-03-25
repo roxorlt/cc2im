@@ -70,6 +70,11 @@ export class HubSocketServer {
             isMonitor = true
             this.monitors.add(socket)
             console.log(`[hub] Monitor connected (${this.monitors.size} total)`)
+            // Send current state: all connected spokes
+            const now = new Date().toISOString()
+            for (const agId of this.spokes.keys()) {
+              socket.write(encodeFrame({ type: 'hub_event', event: { kind: 'agent_online', agentId: agId, timestamp: now } } as HubEvent))
+            }
             return
           }
           if (frame.type === 'register') {
