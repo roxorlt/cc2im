@@ -84,8 +84,10 @@ function sendManagement(
 }
 
 export function setupTools(server: Server, agentId: string, socketClient: SpokeSocketClient) {
-  // Track which user to reply to
-  let lastUserId: string | null = null
+  // Queue of userIds from incoming messages, in arrival order.
+  // CC processes messages serially: push on message arrival, shift on reply.
+  // This prevents a later message from stealing an earlier message's reply target.
+  const replyTargets: string[] = []
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
@@ -171,7 +173,8 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
     switch (name) {
       case 'weixin_reply': {
         const { text, user_id } = args as { text: string; user_id?: string }
-        const targetId = user_id || lastUserId
+        // Explicit user_id takes priority; otherwise consume from the queue (FIFO)
+        const targetId = user_id || replyTargets.shift() || null
 
         if (!targetId) {
           return {
@@ -273,11 +276,16 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
     }
   })
 
-  function setLastUserId(userId: string) {
-    lastUserId = userId
+  function pushReplyTarget(userId: string) {
+    replyTargets.push(userId)
   }
 
-  return { setLastUserId }
+  /** The userId of the message currently being processed (front of queue). */
+  function getCurrentUserId(): string | null {
+    return replyTargets[0] || null
+  }
+
+  return { pushReplyTarget, getCurrentUserId }
 }
 
 export async function connectTransport(server: Server) {

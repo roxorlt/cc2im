@@ -46,7 +46,7 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
   switch (msg.type) {
     case 'message': {
       // Forward to CC as channel notification
-      tools.setLastUserId(msg.userId)
+      tools.pushReplyTarget(msg.userId)
 
       server.notification({
         method: 'notifications/claude/channel',
@@ -76,7 +76,7 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
 })
 
 const tools = setupTools(server, agentId, socketClient)
-const permissionRelay = new PermissionRelay(agentId, server, socketClient)
+const permissionRelay = new PermissionRelay(agentId, server, socketClient, tools.getCurrentUserId)
 permissionRelay.setup()
 
 // --- Exit when CC disconnects (stdin EOF = CC process exited) ---

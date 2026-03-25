@@ -75,7 +75,8 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
       }
       case 'permission_request': {
         console.log(`[hub] Permission request from ${agentId}: ${msg.toolName}`)
-        const targetUserId = (lastUserByAgent.get(agentId) || lastGlobalUser)
+        // Prefer userId from spoke (tracks originating user), fall back to last known
+        const targetUserId = msg.userId || lastUserByAgent.get(agentId) || lastGlobalUser
         if (!targetUserId) {
           console.log(`[hub] No user to forward permission request to`)
           break
@@ -202,7 +203,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     const userId = msg.userId
     lastGlobalUser = userId
 
-    // Check for permission verdict
+    // Check for permission verdict — only match if the replying user is the one who was prompted
     if (msg.type === 'text' && msg.text && pendingPermissions.length > 0) {
       const simpleMatch = msg.text.match(SIMPLE_RE)
       if (simpleMatch) {
@@ -210,8 +211,10 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
         const isAlways = /^(always|始终|总是)$/.test(reply)
         const isAllow = isAlways || /^(y|yes|ok|好|批准)$/i.test(reply)
 
-        const pending = pendingPermissions.shift() // FIFO
-        if (pending) {
+        // Find the first pending permission that was prompted to THIS user
+        const idx = pendingPermissions.findIndex(p => p.userId === userId)
+        if (idx >= 0) {
+          const pending = pendingPermissions.splice(idx, 1)[0]
           const behavior = isAlways ? 'always' : isAllow ? 'allow' : 'deny'
           socketServer.send(pending.agentId, {
             type: 'permission_verdict',
@@ -222,6 +225,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
           console.log(`[hub] Permission verdict: ${pending.requestId} → ${behavior}`)
           return
         }
+        // No pending permission for this user — fall through to normal message routing
       }
     }
 

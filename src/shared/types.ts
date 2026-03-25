@@ -39,6 +39,7 @@ export interface SpokeToHubPermissionRequest {
   toolName: string
   description: string
   inputPreview: string
+  userId?: string // originating user who triggered the action
 }
 
 // Spoke → Hub: 状态上报

@@ -33,6 +33,7 @@ export class PermissionRelay {
     private agentId: string,
     private server: Server,
     private socketClient: SpokeSocketClient,
+    private getCurrentUserId?: () => string | null,
   ) {
     this.allowListPath = join(SOCKET_DIR, 'agents', agentId, 'always-allow.json')
     this.alwaysAllow = this.loadAllowList()
@@ -77,7 +78,7 @@ export class PermissionRelay {
         return
       }
 
-      // Forward to hub via socket
+      // Forward to hub via socket, including originating userId for routing
       this.socketClient.send({
         type: 'permission_request',
         agentId: this.agentId,
@@ -85,6 +86,7 @@ export class PermissionRelay {
         toolName: params.tool_name,
         description: params.description,
         inputPreview: params.input_preview,
+        userId: this.getCurrentUserId?.() || undefined,
       })
 
       // Wait for verdict from hub (will be resolved by handleVerdict)
