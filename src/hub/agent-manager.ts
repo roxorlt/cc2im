@@ -83,8 +83,17 @@ export class AgentManager {
     if (!this.config.agents[name]) {
       return { success: false, error: `Agent "${name}" not found in config` }
     }
+
+    // If process exists but spoke not connected, it's stale — kill and restart
     if (this.processes.has(name)) {
-      return { success: false, error: `Agent "${name}" process already running` }
+      const connected = this.getConnectedAgents()
+      if (connected.includes(name)) {
+        return { success: false, error: `Agent "${name}" is already running and connected` }
+      }
+      console.log(`[agent-manager] Agent "${name}" has stale process (not connected), restarting`)
+      const stale = this.processes.get(name)!
+      stale.kill('SIGKILL')
+      this.processes.delete(name)
     }
 
     const agent = this.config.agents[name]
@@ -184,7 +193,7 @@ export class AgentManager {
   list(): Array<{
     name: string
     cwd: string
-    status: 'connected' | 'running' | 'stopped'
+    status: 'connected' | 'starting' | 'stopped'
     autoStart: boolean
     claudeArgs: string[]
     isDefault: boolean
@@ -193,8 +202,9 @@ export class AgentManager {
     return Object.entries(this.config.agents).map(([name, agent]) => ({
       name,
       cwd: agent.cwd,
+      // 'connected' = spoke online, 'starting' = process spawned but not yet connected, 'stopped' = no process
       status: connected.includes(name) ? 'connected' as const
-        : this.processes.has(name) ? 'running' as const
+        : this.processes.has(name) ? 'starting' as const
         : 'stopped' as const,
       autoStart: agent.autoStart ?? false,
       claudeArgs: agent.claudeArgs || [],
