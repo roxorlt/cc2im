@@ -226,27 +226,296 @@ src/
 │       └── styles/
 ```
 
-## 实现阶段
+## 实现阶段与验收标准
 
 ### Phase W1: Hub monitor 协议
-- socket-server.ts 支持 monitor 注册
-- index.ts 在关键事件点广播
-- 验收：用 netcat 连 hub.sock 发 register_monitor，收到事件流
+
+**实现内容**：
+- `types.ts`：新增 MonitorRegister、HubEvent 类型
+- `socket-server.ts`：识别 `register_monitor` 帧，维护 monitor 连接列表，提供 `broadcast()` 方法
+- `index.ts`：在消息收发、agent 上下线、permission 等事件点调用 `broadcast()`
+
+**验收标准**：
+
+AC-W1.1: Monitor 注册
+```
+1. 启动 hub（cc2im install 或前台 cc2im hub）
+2. 用脚本连 hub.sock，发送 {"type":"register_monitor"}\n
+3. 验证：hub 日志出现 "Monitor connected"
+4. 验证：不影响现有 spoke 注册和消息路由
+```
+
+AC-W1.2: 事件广播 — agent 上下线
+```
+1. monitor 已连接
+2. 启动一个 agent（微信发"启动 demo"）
+3. 验证：monitor 收到 {"type":"hub_event","event":{"kind":"agent_online","agentId":"demo",...}}
+4. 停止 agent
+5. 验证：monitor 收到 agent_offline 事件
+```
+
+AC-W1.3: 事件广播 — 消息收发
+```
+1. monitor 已连接，brain 在线
+2. 微信发消息
+3. 验证：monitor 收到 message_in 事件（含 agentId、userId、text）
+4. brain 回复后，验证：monitor 收到 message_out 事件
+```
+
+AC-W1.4: 事件广播 — permission
+```
+1. monitor 已连接，brain 在线，关闭 auto-mode 测试
+2. 微信发需要权限审批的消息
+3. 验证：monitor 收到 permission_request 事件
+4. 微信回复 yes
+5. 验证：monitor 收到 permission_verdict 事件
+```
+
+AC-W1.5: Monitor 断开不影响 hub
+```
+1. monitor 连接中
+2. 强制断开 monitor
+3. 微信发消息
+4. 验证：hub 正常转发和回复，无报错
+```
+
+AC-W1.6: 无 monitor 时零开销
+```
+1. 没有 monitor 连接
+2. 微信正常收发消息
+3. 验证：hub 日志无 monitor 相关输出，行为与改动前完全一致
+```
+
+---
 
 ### Phase W2: Web 后端骨架
-- `cc2im web` 命令入口
-- monitor-client 连接 hub
-- HTTP server + WebSocket server
-- stats-reader + log-tailer
-- 验收：浏览器打开 localhost:3721，WebSocket 连接成功，收到 snapshot
+
+**实现内容**：
+- `src/web/index.ts`：`cc2im web` 命令入口
+- `src/web/monitor-client.ts`：连 hub.sock 作为 monitor
+- `src/web/stats-reader.ts`：0.5s 读 `~/.claude/stats-cache.json`
+- `src/web/log-tailer.ts`：tail hub.log + spoke.log
+- HTTP server（提供 API）+ WebSocket server（推送事件）
+- `src/cli.ts`：新增 `web` 子命令
+
+**验收标准**：
+
+AC-W2.1: Web server 启动
+```
+1. hub 正在运行
+2. 运行 cc2im web
+3. 验证：终端输出 "Listening on http://127.0.0.1:3721"
+4. 浏览器打开 http://127.0.0.1:3721
+5. 验证：返回 HTTP 200（哪怕是空白页）
+```
+
+AC-W2.2: 自定义端口
+```
+1. 运行 cc2im web --port 8080
+2. 验证：监听在 8080
+```
+
+AC-W2.3: 仅绑定 localhost
+```
+1. cc2im web 运行中
+2. 从另一台机器访问 http://<本机IP>:3721
+3. 验证：连接被拒绝
+```
+
+AC-W2.4: WebSocket 连接 + 初始 snapshot
+```
+1. cc2im web 运行中，brain 在线
+2. 浏览器打开 WebSocket ws://127.0.0.1:3721/ws
+3. 验证：收到 {"type":"snapshot","agents":[{"name":"brain","status":"connected",...}]}
+```
+
+AC-W2.5: 实时事件转发
+```
+1. WebSocket 已连接
+2. 微信发消息
+3. 验证：WebSocket 收到 message_in 和 message_out 事件
+```
+
+AC-W2.6: REST API — agents
+```
+GET http://127.0.0.1:3721/api/agents
+验证：返回 agents.json 内容
+```
+
+AC-W2.7: REST API — stats
+```
+GET http://127.0.0.1:3721/api/stats
+验证：返回 stats-cache.json 内容（含 dailyActivity、modelUsage）
+```
+
+AC-W2.8: 日志流
+```
+1. WebSocket 已连接
+2. hub 产生新日志（微信收发消息）
+3. 验证：WebSocket 收到 {"type":"log","source":"hub","line":"..."}
+```
+
+AC-W2.9: Hub 未运行时的降级
+```
+1. 停止 hub
+2. 运行 cc2im web
+3. 验证：web server 正常启动，但提示 "Hub not connected"
+4. 启动 hub
+5. 验证：web 进程自动连上，开始收到事件
+```
+
+AC-W2.10: Web 进程退出不影响 hub
+```
+1. cc2im web 运行中
+2. Ctrl+C 停止 web
+3. 微信发消息
+4. 验证：hub 正常工作
+```
+
+---
 
 ### Phase W3: 前端页面
-- React + Vite 项目搭建
-- TopBar（指标）+ AgentList（卡片）+ MessageFlow + LogViewer
-- TPD 折线图
-- 验收：完整页面可用，实时刷新
 
-### Phase W4: 打包集成
-- Vite 构建产物嵌入 cc2im 包
-- `cc2im web` 直接 serve 构建产物
-- 验收：`npm pack` 后 `cc2im web` 可用
+**实现内容**：
+- React + Vite + TypeScript 项目初始化
+- TopBar 组件（hub 运行时长、今日消息数、总 token、输入/输出 token、TPD 折线图）
+- AgentList 组件（agent 卡片列表，状态灯，运行时长）
+- MessageFlow 组件（选中 agent 的消息收发流水）
+- LogViewer 组件（选中 agent 的 spoke.log 实时滚动）
+- WebSocket hook + Stats polling hook
+
+**验收标准**：
+
+AC-W3.1: 页面加载
+```
+1. hub 运行中，brain 在线
+2. 浏览器打开 http://127.0.0.1:3721
+3. 验证：页面渲染完成，无白屏，无控制台报错
+```
+
+AC-W3.2: 顶栏指标
+```
+1. 页面加载后
+2. 验证：显示 hub 运行时长（递增计时）
+3. 验证：显示今日消息数（与 stats-cache.json 一致）
+4. 验证：显示总 token / 输入 token / 输出 token
+5. 验证：TPD 折线图显示近 30 天数据
+```
+
+AC-W3.3: Agent 列表
+```
+1. agents.json 有 brain（connected）和 demo（stopped）
+2. 验证：左侧显示两张卡片
+3. 验证：brain 卡片绿色状态灯 + 运行时长
+4. 验证：demo 卡片灰色状态灯
+5. 验证：brain 卡片有 ★ 标记（默认 agent）
+```
+
+AC-W3.4: 实时状态更新
+```
+1. 页面打开中
+2. 微信发"启动 demo"
+3. 验证：demo 卡片从灰色变绿色，无需刷新页面
+4. 微信发"停止 demo"
+5. 验证：demo 卡片从绿色变灰色
+```
+
+AC-W3.5: 消息流
+```
+1. 点击 brain 卡片
+2. 右侧显示"消息流"tab
+3. 微信发消息
+4. 验证：消息流实时出现新条目（输入 + 输出）
+5. 验证：区分输入（用户消息）和输出（agent 回复）样式
+6. 验证：自动滚动到最新消息
+```
+
+AC-W3.6: 日志查看
+```
+1. 点击 brain 卡片，切换到"日志"tab
+2. 验证：显示 spoke.log 内容
+3. 产生新日志
+4. 验证：新日志实时追加
+5. 验证：等宽字体，可滚动
+```
+
+AC-W3.7: Permission 事件展示
+```
+1. brain 关闭 auto-mode
+2. 微信发需要权限的消息
+3. 验证：消息流中出现 permission 请求卡片（区别于普通消息）
+4. 微信回复 yes
+5. 验证：出现 permission 审批卡片
+```
+
+AC-W3.8: 切换 agent
+```
+1. 点击 brain 卡片，查看消息流
+2. 点击 demo 卡片
+3. 验证：右侧切换为 demo 的消息流和日志
+4. 点回 brain
+5. 验证：brain 的消息流仍保留（未丢失）
+```
+
+---
+
+### Phase W4: 集成测试 + 打包
+
+**实现内容**：
+- Vite 构建 React 产物为静态文件
+- web server 直接 serve 构建产物（开发模式用 Vite dev server）
+- `cc2im web` 命令集成到 CLI
+- `npm pack` 包含构建产物
+
+**验收标准**：
+
+AC-W4.1: 开发模式
+```
+1. 运行 cc2im web --dev
+2. 验证：Vite dev server 启动，支持热更新
+3. 修改 React 组件
+4. 验证：浏览器自动刷新
+```
+
+AC-W4.2: 生产构建
+```
+1. 构建前端：npm run build:web（或类似命令）
+2. 运行 cc2im web（非 --dev）
+3. 验证：serve 构建后的静态文件，页面功能与开发模式一致
+```
+
+AC-W4.3: 包完整性
+```
+npm pack --dry-run
+验证：包含 dist/web/ 目录（构建产物）
+验证：不包含 src/web/frontend/node_modules 或源码（如果单独构建）
+```
+
+AC-W4.4: 端到端冒烟测试
+```
+1. cc2im install（hub 后台运行，brain 自动启动）
+2. cc2im web
+3. 浏览器打开 http://127.0.0.1:3721
+4. 验证：顶栏指标正常显示
+5. 验证：brain 显示为 connected
+6. 微信发消息
+7. 验证：消息流实时更新
+8. 验证：顶栏今日消息数递增
+9. Ctrl+C 停 web
+10. 微信再发消息
+11. 验证：hub 正常工作不受影响
+```
+
+---
+
+## 验收流程
+
+每个 Phase 完成后：
+
+1. **自验**：按上述 AC 逐条执行，记录通过/失败
+2. **代码审查**：提交前用 Codex 或人工 review
+3. **提交**：通过后提交到 feature branch
+4. **合并**：Phase 全部 AC 通过后合并到 main
+5. **重装服务**：`cc2im uninstall && cc2im install` 确保生产环境可用
+
+Phase 之间的依赖：W1 → W2 → W3 → W4（严格顺序，后一个依赖前一个的产出）。
