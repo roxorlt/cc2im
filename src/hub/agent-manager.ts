@@ -17,10 +17,12 @@ export class AgentManager {
   private processes = new Map<string, ChildProcess>()
   private config: AgentsConfig
   private getConnectedAgents: () => string[]
+  private onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void
 
-  constructor(getConnectedAgents: () => string[]) {
+  constructor(getConnectedAgents: () => string[], onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void) {
     this.config = this.loadConfig()
     this.getConnectedAgents = getConnectedAgents
+    this.onEvent = onEvent
   }
 
   private loadConfig(): AgentsConfig {
@@ -166,9 +168,11 @@ export class AgentManager {
     child.on('exit', (code) => {
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
+      this.onEvent?.('agent_stopped', name, { code })
     })
 
     this.processes.set(name, child)
+    this.onEvent?.('agent_started', name)
     return { success: true }
   }
 

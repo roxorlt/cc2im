@@ -79,7 +79,13 @@ export interface SpokeToHubRegister {
 
 export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission | HubToSpokeManagementResult
 
-export type SpokeToHub = SpokeToHubRegister | SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout | SpokeToHubManagement
+// Spoke → Hub: 心跳
+export interface SpokeToHubHeartbeat {
+  type: 'heartbeat'
+  agentId: string
+}
+
+export type SpokeToHub = SpokeToHubRegister | SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout | SpokeToHubManagement | SpokeToHubHeartbeat
 
 // Agent 配置
 export interface AgentConfig {
@@ -89,6 +95,29 @@ export interface AgentConfig {
   createdAt: string
   autoStart?: boolean    // hub 启动时自动拉起
   autoMode?: boolean     // 启用 CC auto-mode（自动批准安全操作，默认 true）
+}
+
+// --- Monitor 协议（Web UI 观察者） ---
+
+export interface MonitorRegister {
+  type: 'register_monitor'
+}
+
+export interface HubEventData {
+  kind: 'agent_online' | 'agent_offline' | 'message_in' | 'message_out'
+    | 'permission_request' | 'permission_verdict' | 'agent_started' | 'agent_stopped'
+  agentId: string
+  timestamp: string
+  userId?: string
+  text?: string
+  toolName?: string
+  behavior?: string
+  code?: number
+}
+
+export interface HubEvent {
+  type: 'hub_event'
+  event: HubEventData
 }
 
 // agents.json 结构

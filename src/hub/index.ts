@@ -53,7 +53,12 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   // --- Agent Manager (created before socket server to avoid reference race) ---
   let socketServer: HubSocketServer
 
-  const agentManager = new AgentManager(() => socketServer.getConnectedAgents())
+  const agentManager = new AgentManager(
+    () => socketServer.getConnectedAgents(),
+    (kind, agentId, extra) => {
+      socketServer.broadcast({ kind: kind as any, agentId, timestamp: new Date().toISOString(), ...extra })
+    },
+  )
 
   // --- Track which user last talked to which agent ---
   const lastUserByAgent = new Map<string, string>()
@@ -70,6 +75,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     switch (msg.type) {
       case 'reply': {
         console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
+        socketServer.broadcast({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString() })
         await weixin.send(msg.userId, msg.text)
         break
       }
@@ -108,6 +114,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
           `回复 yes 批准 / always 始终批准 / no 拒绝`,
         ].join('\n')
 
+        socketServer.broadcast({ kind: 'permission_request', agentId, toolName: msg.toolName, timestamp: new Date().toISOString() })
         await weixin.send(targetUserId, prompt)
         break
       }
@@ -223,6 +230,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
             toolName: pending.toolName,
           })
           console.log(`[hub] Permission verdict: ${pending.requestId} → ${behavior}`)
+          socketServer.broadcast({ kind: 'permission_verdict', agentId: pending.agentId, behavior, timestamp: new Date().toISOString() })
           return
         }
         // No pending permission for this user — fall through to normal message routing
@@ -281,6 +289,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     // Forward to spoke — use routed.text (with @mention stripped)
     const text = buildMessageContent(msg, routed.text)
     console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
+    socketServer.broadcast({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString() })
     const sent = socketServer.send(routed.agentId, {
       type: 'message',
       userId,

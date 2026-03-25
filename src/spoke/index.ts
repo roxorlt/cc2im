@@ -79,13 +79,25 @@ const tools = setupTools(server, agentId, socketClient)
 const permissionRelay = new PermissionRelay(agentId, server, socketClient, tools.getCurrentUserId)
 permissionRelay.setup()
 
-// --- Exit when CC disconnects (stdin EOF = CC process exited) ---
+// --- Exit when CC disconnects ---
+// Method 1: stdin EOF (may be swallowed by MCP transport)
 process.stdin.on('end', () => {
   console.log(`[spoke:${agentId}] CC disconnected (stdin EOF), exiting`)
   socketClient.disconnect()
   process.exit(0)
 })
-process.stdin.resume() // Ensure 'end' event fires even if MCP transport pauses stdin
+process.stdin.resume()
+
+// Method 2: Poll parent PID — when CC dies, PPID becomes 1 (launchd/init)
+const originalPpid = process.ppid
+const ppidCheck = setInterval(() => {
+  if (process.ppid !== originalPpid) {
+    console.log(`[spoke:${agentId}] Parent process gone (ppid ${originalPpid} → ${process.ppid}), exiting`)
+    clearInterval(ppidCheck)
+    socketClient.disconnect()
+    process.exit(0)
+  }
+}, 3000)
 
 // --- Start ---
 async function main() {
@@ -97,6 +109,11 @@ async function main() {
 
   // Report ready
   socketClient.send({ type: 'status', agentId, status: 'ready' })
+
+  // Heartbeat every 15s
+  setInterval(() => {
+    socketClient.send({ type: 'heartbeat', agentId })
+  }, 15_000)
   console.log(`[spoke:${agentId}] Ready`)
 }
 
