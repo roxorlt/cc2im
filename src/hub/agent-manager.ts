@@ -84,9 +84,14 @@ export class AgentManager {
       return { success: false, error: `Agent "${name}" not found in config` }
     }
 
+    // Guard: refuse to spawn if spoke is already connected (externally started)
+    const connected = this.getConnectedAgents()
+    if (!this.processes.has(name) && connected.includes(name)) {
+      return { success: false, error: `Agent "${name}" is already running externally (spoke connected). Stop it manually first.` }
+    }
+
     // If process exists but spoke not connected, it's stale — kill and restart
     if (this.processes.has(name)) {
-      const connected = this.getConnectedAgents()
       if (connected.includes(name)) {
         return { success: false, error: `Agent "${name}" is already running and connected` }
       }
@@ -217,6 +222,15 @@ export class AgentManager {
   }
 
   async restart(name: string): Promise<{ success: boolean; error?: string }> {
+    // Only restart hub-managed agents. Externally started agents (foreground CLI)
+    // cannot be stopped by the hub — refuse rather than spawn a duplicate.
+    if (!this.processes.has(name)) {
+      const connected = this.getConnectedAgents()
+      if (connected.includes(name)) {
+        return { success: false, error: `Agent "${name}" was started externally. Stop it manually, then use start.` }
+      }
+      return { success: false, error: `Agent "${name}" is not running` }
+    }
     await this.stop(name)
     return this.start(name)
   }

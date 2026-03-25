@@ -1,9 +1,30 @@
-import { createServer, Socket } from 'node:net'
+import { createServer, createConnection, Socket } from 'node:net'
 import { unlinkSync, existsSync } from 'node:fs'
 import {
   HUB_SOCKET_PATH, ensureSocketDir, encodeFrame, createFrameParser
 } from '../shared/socket.js'
 import type { SpokeToHub, HubToSpoke } from '../shared/types.js'
+
+/** Check if another hub is already listening on the socket path. */
+function probeSocket(socketPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      conn.destroy()
+      resolve(false) // Timed out — treat as stale
+    }, 1000)
+
+    const conn = createConnection(socketPath, () => {
+      // Connection succeeded — another hub is alive
+      clearTimeout(timeout)
+      conn.destroy()
+      resolve(true)
+    })
+    conn.on('error', () => {
+      clearTimeout(timeout)
+      resolve(false) // ECONNREFUSED / ENOENT — no hub listening
+    })
+  })
+}
 
 interface ConnectedSpoke {
   agentId: string
@@ -19,9 +40,19 @@ export class HubSocketServer {
     this.onMessage = onMessage
   }
 
-  start() {
+  async start() {
     ensureSocketDir()
-    if (existsSync(HUB_SOCKET_PATH)) unlinkSync(HUB_SOCKET_PATH)
+
+    // Probe existing socket — refuse to start if another hub is alive
+    if (existsSync(HUB_SOCKET_PATH)) {
+      const alive = await probeSocket(HUB_SOCKET_PATH)
+      if (alive) {
+        console.error(`[hub] ✗ Another hub is already running on ${HUB_SOCKET_PATH}. Stop it first.`)
+        process.exit(1)
+      }
+      // Stale socket from a crash — safe to clean up
+      unlinkSync(HUB_SOCKET_PATH)
+    }
 
     this.server.on('connection', (socket) => {
       let agentId: string | null = null
