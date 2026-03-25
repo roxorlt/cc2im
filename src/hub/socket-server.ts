@@ -88,8 +88,17 @@ export class HubSocketServer {
             const existing = this.spokes.get(agentId!)
             if (existing && existing.socket !== socket) {
               console.log(`[hub] Replacing stale connection for ${agentId}`)
+              existing.socket.destroy()
+              if (existing.pid) {
+                try {
+                  process.kill(existing.pid, 'SIGTERM')
+                  console.log(`[hub] Killed replaced spoke "${agentId}" (pid ${existing.pid})`)
+                } catch { /* already dead */ }
+              }
             }
-            this.spokes.set(agentId!, { agentId: agentId!, socket, pid: frame.pid as number | undefined })
+            const rawPid = (frame as any).pid
+            const pid = typeof rawPid === 'number' && rawPid > 0 && Number.isInteger(rawPid) ? rawPid : undefined
+            this.spokes.set(agentId!, { agentId: agentId!, socket, pid })
             this.lastHeartbeat.set(agentId!, Date.now())
             console.log(`[hub] Spoke registered: ${agentId}`)
             this.broadcast({ kind: 'agent_online', agentId: agentId!, timestamp: new Date().toISOString() })
