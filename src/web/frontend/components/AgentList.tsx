@@ -53,6 +53,9 @@ export function AgentList({ agents, selected, onSelect }: {
             {a.status === 'connected' && a.onlineSince ? timeSince(a.onlineSince) : a.status}
             {' · '}{a.cwd.replace(/^\/Users\/\w+/, '~')}
           </div>
+          <div style={{ fontSize: 10, color: '#6e7681', marginTop: 1 }}>
+            📱 WeChat ClawBot
+          </div>
         </div>
       ))}
       {agents.length === 0 && <div style={{ ...css.meta, padding: 12 }}>No agents configured</div>}
