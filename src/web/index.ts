@@ -126,19 +126,33 @@ export async function startWeb(options: { port: number }) {
       return
     }
 
-    // Serve frontend (placeholder for now)
-    res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(`<!DOCTYPE html>
-<html>
-<head><title>cc2im Dashboard</title></head>
-<body>
-  <h1>cc2im Dashboard</h1>
-  <p>Hub: ${monitor.isConnected() ? '🟢 Connected' : '🔴 Disconnected'}</p>
-  <p>API endpoints: /api/agents, /api/stats, /api/health, /api/messages</p>
-  <p>WebSocket: ws://${host}:${port}/ws</p>
-  <div id="app">React frontend will be mounted here (Phase W3)</div>
-</body>
-</html>`)
+    // Serve frontend static files
+    const frontendDir = join(import.meta.dirname!, '..', '..', 'dist', 'web-frontend')
+    const srcFrontendDir = join(import.meta.dirname!, 'frontend')
+
+    // Try built assets first, then source index.html as fallback
+    let filePath = join(frontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
+    if (!existsSync(filePath) && existsSync(join(srcFrontendDir, 'index.html'))) {
+      // Dev mode: serve source index.html (use with Vite dev server proxy instead)
+      filePath = join(srcFrontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
+    }
+    if (!existsSync(filePath)) {
+      // SPA fallback: serve index.html for all routes
+      filePath = join(frontendDir, 'index.html')
+    }
+    if (!existsSync(filePath)) {
+      res.writeHead(404)
+      res.end('Not found. Run `npx vite build` first.')
+      return
+    }
+
+    const ext = filePath.split('.').pop() || ''
+    const mimeTypes: Record<string, string> = {
+      html: 'text/html', js: 'application/javascript', css: 'text/css',
+      json: 'application/json', svg: 'image/svg+xml', png: 'image/png',
+    }
+    res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' })
+    res.end(readFileSync(filePath))
   })
 
   // --- WebSocket Server ---
