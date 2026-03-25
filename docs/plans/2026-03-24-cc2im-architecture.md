@@ -772,7 +772,7 @@ cc2wx 继续作为轻量版维护：
 
 ## 验收标准
 
-### Phase 1 验收：单 Agent 全链路
+### Phase 1 验收：单 Agent 全链路 ✅ 2026-03-24
 
 每条验收用例需要实际执行并确认结果，不能仅凭代码逻辑判断。
 
@@ -862,9 +862,9 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
 
 ---
 
-### Phase 2 验收：多 Agent 路由
+### Phase 2 验收：多 Agent 路由（进行中）
 
-**AC-2.1: @mention 路由**
+**AC-2.1: @mention 路由** ✅ 2026-03-25
 ```
 1. 注册两个 agent: brain (cwd: ~/brain) 和 code (cwd: ~/brain/30-projects/cc2wx)
 2. 启动两个 agent
@@ -873,7 +873,7 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
 5. 微信发 "你好"（无@）→ 验证 defaultAgent 收到消息
 ```
 
-**AC-2.2: Agent 注册（通过微信自然语言）**
+**AC-2.2: Agent 注册（通过微信自然语言）** ✅ 2026-03-25
 ```
 1. 微信发 "注册一个 agent 叫 test，目录是 /tmp/test-agent"
 2. 验证：
@@ -881,7 +881,7 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
    - 微信收到确认消息
 ```
 
-**AC-2.3: Agent 启停**
+**AC-2.3: Agent 启停** ✅ 2026-03-25
 ```
 1. 微信发 "启动 test"
 2. 验证：test agent 的 CC 进程启动，spoke 注册到 hub
@@ -992,3 +992,37 @@ cc2im logs
 - [ ] README 包含安装说明、使用说明、架构图
 - [ ] `npx cc2im --help` 输出所有命令说明
 - [ ] cc2wx 仍然正常工作（未被破坏）
+
+---
+
+## 开发日志
+
+### 2026-03-24: Phase 1 完成（AC-1.1 ~ AC-1.9）
+
+全部 9 条验收用例通过。关键实现：
+- Hub/Spoke Unix socket 通信
+- 微信 iLink Bot 连接 + 消息转发
+- MCP channel server（stdio transport）
+- Permission relay 全链路（请求 → 微信弹窗 → verdict 回传）
+- Always-allow 持久化（per-agent JSON）
+- Structure-aware chunker（代码块/表格/段落边界感知，3 级降级）
+- Spoke 自动重连（指数退避 3s→30s）
+
+### 2026-03-25: Phase 2 验收进行中（AC-2.1 ~ AC-2.3 通过）
+
+**AC-2.1 @mention 路由**：@brain / @test / 无@ 三种路由全部正确。
+
+**AC-2.2 Agent 注册**：微信发自然语言指令，brain agent 调用 agent_register MCP 工具，成功写入 agents.json。
+
+**AC-2.3 Agent 启停**：后台启动 agent 遇到多个问题并逐一解决：
+
+| 问题 | 原因 | 解决方案 |
+|------|------|---------|
+| CC 无法启动 | `script` 在非 tty 环境下 `tcgetattr` 失败 | 改用 `expect` 创建独立 pty |
+| CC 卡在信任提示 | 新工作目录首次使用需要确认 | expect 脚本匹配 "confirm" 自动应答 |
+| brain 收不到消息 | 多个 zombie spoke 进程竞争 socket 注册 | spoke 添加 stdin EOF 检测自动退出 |
+| 重复注册导致死连接 | hub 存了旧 socket 引用 | hub 端 stale connection 替换 + close 事件安全检查 |
+
+最终方案：`caffeinate -i expect start.exp`，expect 脚本创建 pty → 启动 CC → 自动应答信任 → 等待 EOF。
+
+验证通过：启动 demo agent → spoke 注册 → @demo 收发消息 → 停止 → code 143 + spoke 断开。
