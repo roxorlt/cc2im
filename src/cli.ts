@@ -317,6 +317,13 @@ switch (command) {
     break
   }
 
+  case 'web': {
+    const webPort = parseInt(process.argv.find((a, i) => process.argv[i - 1] === '--port') || '3721')
+    const { startWeb } = await import('./web/index.js')
+    await startWeb({ port: webPort })
+    break
+  }
+
   case '--help':
   case '-h':
   default:
@@ -333,5 +340,8 @@ Usage:
   cc2im uninstall          卸载 launchd 服务
   cc2im status             查看运行状态
   cc2im logs               查看实时日志
+
+  cc2im web                监控面板（默认端口 3721）
+  cc2im web --port 8080    指定端口
 `)
 }
