@@ -994,7 +994,7 @@ cc2im logs
 
 ### Auto-mode 验收
 
-**AC-AM.1: 安全操作自动执行（无微信审批）**
+**AC-AM.1: 安全操作自动执行（无微信审批）** ✅ 2026-03-25
 ```
 1. 确保 brain agent 的 autoMode 为 true（默认）
 2. 重启 hub（cc2im install）
