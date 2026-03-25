@@ -9,7 +9,9 @@ import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { randomUUID } from 'node:crypto'
 import type { SpokeSocketClient } from './socket-client.js'
+import type { HubToSpokeManagementResult } from '../shared/types.js'
 
 export function createChannelServer(agentId: string) {
   const server = new Server(
@@ -33,6 +35,54 @@ export function createChannelServer(agentId: string) {
   return server
 }
 
+/** Pending management request resolvers */
+const pendingManagement = new Map<string, {
+  resolve: (result: { success: boolean; data?: any; error?: string }) => void
+}>()
+
+/** Handle management result from hub */
+export function handleManagementResult(msg: HubToSpokeManagementResult) {
+  const pending = pendingManagement.get(msg.requestId)
+  if (pending) {
+    pendingManagement.delete(msg.requestId)
+    pending.resolve({ success: msg.success, data: msg.data, error: msg.error })
+  }
+}
+
+/** Send management request and wait for result */
+function sendManagement(
+  socketClient: SpokeSocketClient,
+  agentId: string,
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'list',
+  params?: Record<string, any>,
+): Promise<{ success: boolean; data?: any; error?: string }> {
+  return new Promise((resolve) => {
+    const requestId = randomUUID()
+    pendingManagement.set(requestId, { resolve })
+
+    const sent = socketClient.send({
+      type: 'management',
+      agentId,
+      requestId,
+      action,
+      params,
+    })
+
+    if (!sent) {
+      pendingManagement.delete(requestId)
+      return resolve({ success: false, error: 'Hub not connected' })
+    }
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (pendingManagement.has(requestId)) {
+        pendingManagement.delete(requestId)
+        resolve({ success: false, error: 'Management request timed out' })
+      }
+    }, 30_000)
+  })
+}
+
 export function setupTools(server: Server, agentId: string, socketClient: SpokeSocketClient) {
   // Track which user to reply to
   let lastUserId: string | null = null
@@ -54,41 +104,175 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
           required: ['text'],
         },
       },
+      {
+        name: 'agent_register',
+        description: '注册一个新的 agent（CC 实例）',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'agent 名称，用于 @mention 路由' },
+            cwd: { type: 'string', description: '工作目录的绝对路径' },
+            claude_args: {
+              type: 'array',
+              items: { type: 'string' },
+              description: '额外的 claude CLI 参数（如 ["--effort", "max"]）',
+            },
+          },
+          required: ['name', 'cwd'],
+        },
+      },
+      {
+        name: 'agent_deregister',
+        description: '注销一个 agent（停止进程 + 从配置中删除）',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'agent 名称' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'agent_start',
+        description: '启动一个已注册的 agent',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'agent 名称' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'agent_stop',
+        description: '停止一个正在运行的 agent',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'agent 名称' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'agent_list',
+        description: '列出所有 agent 及其状态',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {},
+        },
+      },
     ],
   }))
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    if (request.params.name !== 'weixin_reply') {
-      return {
-        content: [{ type: 'text' as const, text: `Unknown tool: ${request.params.name}` }],
-        isError: true,
+    const { name, arguments: args } = request.params
+
+    switch (name) {
+      case 'weixin_reply': {
+        const { text, user_id } = args as { text: string; user_id?: string }
+        const targetId = user_id || lastUserId
+
+        if (!targetId) {
+          return {
+            content: [{ type: 'text' as const, text: '没有可回复的用户，等待微信消息...' }],
+            isError: true,
+          }
+        }
+
+        socketClient.send({
+          type: 'reply',
+          agentId,
+          userId: targetId,
+          text,
+        })
+
+        return {
+          content: [{ type: 'text' as const, text: `已发送到微信用户 ${targetId}` }],
+        }
       }
-    }
 
-    const args = request.params.arguments as { text: string; user_id?: string }
-    const targetId = args.user_id || lastUserId
-
-    if (!targetId) {
-      return {
-        content: [{ type: 'text' as const, text: '没有可回复的用户，等待微信消息...' }],
-        isError: true,
+      case 'agent_register': {
+        const { name: agentName, cwd, claude_args } = args as {
+          name: string; cwd: string; claude_args?: string[]
+        }
+        const result = await sendManagement(socketClient, agentId, 'register', {
+          name: agentName, cwd, claudeArgs: claude_args,
+        })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已注册 (cwd: ${cwd})`
+            : `注册失败: ${result.error}` }],
+          isError: !result.success,
+        }
       }
-    }
 
-    // Send reply through hub
-    socketClient.send({
-      type: 'reply',
-      agentId,
-      userId: targetId,
-      text: args.text,
-    })
+      case 'agent_deregister': {
+        const { name: agentName } = args as { name: string }
+        const result = await sendManagement(socketClient, agentId, 'deregister', { name: agentName })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已注销`
+            : `注销失败: ${result.error}` }],
+          isError: !result.success,
+        }
+      }
 
-    return {
-      content: [{ type: 'text' as const, text: `已发送到微信用户 ${targetId}` }],
+      case 'agent_start': {
+        const { name: agentName } = args as { name: string }
+        const result = await sendManagement(socketClient, agentId, 'start', { name: agentName })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已启动`
+            : `启动失败: ${result.error}` }],
+          isError: !result.success,
+        }
+      }
+
+      case 'agent_stop': {
+        const { name: agentName } = args as { name: string }
+        const result = await sendManagement(socketClient, agentId, 'stop', { name: agentName })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已停止`
+            : `停止失败: ${result.error}` }],
+          isError: !result.success,
+        }
+      }
+
+      case 'agent_list': {
+        const result = await sendManagement(socketClient, agentId, 'list')
+        if (!result.success) {
+          return {
+            content: [{ type: 'text' as const, text: `查询失败: ${result.error}` }],
+            isError: true,
+          }
+        }
+        const agents = result.data as Array<{
+          name: string; cwd: string; status: string;
+          autoStart: boolean; claudeArgs: string[]; isDefault: boolean
+        }>
+        if (agents.length === 0) {
+          return { content: [{ type: 'text' as const, text: '没有已注册的 agent' }] }
+        }
+        const lines = agents.map(a =>
+          `${a.isDefault ? '★' : '·'} ${a.name} [${a.status}] — ${a.cwd}` +
+          (a.claudeArgs.length ? ` (${a.claudeArgs.join(' ')})` : '') +
+          (a.autoStart ? ' [autoStart]' : '')
+        )
+        return {
+          content: [{ type: 'text' as const, text: lines.join('\n') }],
+        }
+      }
+
+      default:
+        return {
+          content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
+          isError: true,
+        }
     }
   })
 
-  /** Update the last user ID (called when hub forwards a message) */
   function setLastUserId(userId: string) {
     lastUserId = userId
   }

@@ -30,6 +30,11 @@ export class HubSocketServer {
         // 第一条消息必须是注册
         if (!agentId && frame.type === 'register') {
           agentId = frame.agentId as string
+          // Replace stale connection for this agent if any
+          const existing = this.spokes.get(agentId!)
+          if (existing && existing.socket !== socket) {
+            console.log(`[hub] Replacing stale connection for ${agentId}`)
+          }
           this.spokes.set(agentId!, { agentId: agentId!, socket })
           console.log(`[hub] Spoke registered: ${agentId}`)
           return
@@ -42,8 +47,12 @@ export class HubSocketServer {
       socket.on('data', parser)
       socket.on('close', () => {
         if (agentId) {
-          this.spokes.delete(agentId)
-          console.log(`[hub] Spoke disconnected: ${agentId}`)
+          // Only remove if this socket is still the active one (not replaced)
+          const current = this.spokes.get(agentId)
+          if (current && current.socket === socket) {
+            this.spokes.delete(agentId)
+            console.log(`[hub] Spoke disconnected: ${agentId}`)
+          }
         }
       })
       socket.on('error', (err) => {
@@ -59,7 +68,9 @@ export class HubSocketServer {
   send(agentId: string, msg: HubToSpoke): boolean {
     const spoke = this.spokes.get(agentId)
     if (!spoke) return false
-    spoke.socket.write(encodeFrame(msg))
+    const ok = spoke.socket.write(encodeFrame(msg))
+    if (!ok) console.log(`[hub] ⚠ Back-pressure on socket to ${agentId}`)
+    if (spoke.socket.destroyed) console.log(`[hub] ⚠ Socket to ${agentId} is destroyed!`)
     return true
   }
 

@@ -4,10 +4,10 @@
 
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
 import { HubSocketServer } from './socket-server.js'
 import { WeixinConnection } from './weixin.js'
 import { Router } from './router.js'
+import { AgentManager } from './agent-manager.js'
 import { SOCKET_DIR } from '../shared/socket.js'
 import type { AgentsConfig, SpokeToHub } from '../shared/types.js'
 
@@ -22,21 +22,51 @@ function loadAgentsConfig(): AgentsConfig {
 }
 
 // --- Permission tracking ---
-const pendingPermissions: Array<{
+interface PendingPermission {
   requestId: string
   agentId: string
   toolName: string
-  userId: string // 发给哪个微信用户的
-}> = []
+  userId: string
+  createdAt: number
+}
+
+const pendingPermissions: PendingPermission[] = []
+const PERMISSION_TTL_MS = 6 * 60 * 1000 // 6 minutes (spoke timeout is 5 min)
+
+/** Remove stale entries that the spoke may have missed sending timeout for */
+function cleanupStalePermissions() {
+  const now = Date.now()
+  for (let i = pendingPermissions.length - 1; i >= 0; i--) {
+    if (now - pendingPermissions[i].createdAt > PERMISSION_TTL_MS) {
+      console.log(`[hub] Cleaning stale permission: ${pendingPermissions[i].requestId}`)
+      pendingPermissions.splice(i, 1)
+    }
+  }
+}
 
 // --- Main ---
-export async function startHub() {
+export async function startHub(options?: { autoStartAgents?: boolean }) {
   const config = loadAgentsConfig()
   const router = new Router(config)
   const weixin = new WeixinConnection()
 
+  // --- Agent Manager (created before socket server to avoid reference race) ---
+  let socketServer: HubSocketServer
+
+  const agentManager = new AgentManager(() => socketServer.getConnectedAgents())
+
+  // --- Track which user last talked to which agent ---
+  const lastUserByAgent = new Map<string, string>()
+  let lastGlobalUser: string | null = null
+
+  // Permission verdict detection
+  const SIMPLE_RE = /^\s*(y|yes|ok|好|批准|always|始终|总是|n|no|不|拒绝)\s*$/i
+
+  // Periodic cleanup of stale permissions
+  const cleanupInterval = setInterval(cleanupStalePermissions, 60_000)
+
   // --- Socket Server: 接收 spoke 消息 ---
-  const socketServer = new HubSocketServer(async (agentId: string, msg: SpokeToHub) => {
+  socketServer = new HubSocketServer(async (agentId: string, msg: SpokeToHub) => {
     switch (msg.type) {
       case 'reply': {
         console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
@@ -45,10 +75,6 @@ export async function startHub() {
       }
       case 'permission_request': {
         console.log(`[hub] Permission request from ${agentId}: ${msg.toolName}`)
-        // Find the most recent user
-        const userId = msg.agentId // will be overridden below
-        // For now, broadcast to the user who last sent a message to this agent
-        // TODO: track per-agent last user
         const targetUserId = (lastUserByAgent.get(agentId) || lastGlobalUser)
         if (!targetUserId) {
           console.log(`[hub] No user to forward permission request to`)
@@ -60,6 +86,7 @@ export async function startHub() {
           agentId,
           toolName: msg.toolName,
           userId: targetUserId,
+          createdAt: Date.now(),
         })
 
         let preview = msg.inputPreview
@@ -95,18 +122,83 @@ export async function startHub() {
         }
         break
       }
+      case 'management': {
+        console.log(`[hub] Management request from ${agentId}: ${msg.action}`)
+        const targetName = msg.params?.name
+        // Is this agent operating on itself? If so, send reply before executing
+        // destructive actions (stop/deregister kill the process & close the socket).
+        const isSelfAction = targetName === agentId &&
+          (msg.action === 'stop' || msg.action === 'deregister')
+
+        const sendResult = (result: { success: boolean; data?: any; error?: string }) => {
+          socketServer.send(agentId, {
+            type: 'management_result',
+            requestId: msg.requestId,
+            success: result.success,
+            data: result.data,
+            error: result.error,
+          })
+        }
+
+        let result: { success: boolean; data?: any; error?: string }
+
+        switch (msg.action) {
+          case 'register': {
+            result = agentManager.register(
+              msg.params!.name!,
+              msg.params!.cwd!,
+              msg.params!.claudeArgs,
+            )
+            if (result.success) router.updateConfig(agentManager.getConfig())
+            break
+          }
+          case 'deregister': {
+            if (isSelfAction) {
+              // Reply first, then tear down
+              sendResult({ success: true })
+              await agentManager.deregister(msg.params!.name!)
+              router.updateConfig(agentManager.getConfig())
+              break
+            }
+            result = await agentManager.deregister(msg.params!.name!)
+            if (result.success) router.updateConfig(agentManager.getConfig())
+            break
+          }
+          case 'start': {
+            result = agentManager.start(msg.params!.name!)
+            break
+          }
+          case 'stop': {
+            if (!agentManager.isManaged(targetName!)) {
+              result = { success: false, error: `Agent "${targetName}" is not managed by this hub (started externally)` }
+              break
+            }
+            if (isSelfAction) {
+              sendResult({ success: true })
+              await agentManager.stop(msg.params!.name!)
+              break
+            }
+            result = await agentManager.stop(msg.params!.name!)
+            break
+          }
+          case 'list': {
+            result = { success: true, data: agentManager.list() }
+            break
+          }
+          default:
+            result = { success: false, error: `Unknown action: ${msg.action}` }
+        }
+
+        if (!isSelfAction) {
+          sendResult(result!)
+        }
+        break
+      }
     }
   })
 
-  // --- Track which user last talked to which agent ---
-  const lastUserByAgent = new Map<string, string>()
-  let lastGlobalUser: string | null = null
-
-  // Permission verdict detection
-  const SIMPLE_RE = /^\s*(y|yes|ok|好|批准|always|始终|总是|n|no|不|拒绝)\s*$/i
-
   // --- WeChat message handler ---
-  weixin.setMessageHandler((msg) => {
+  weixin.setMessageHandler(async (msg) => {
     const userId = msg.userId
     lastGlobalUser = userId
 
@@ -133,19 +225,59 @@ export async function startHub() {
       }
     }
 
-    // Route message to spoke
-    const text = buildMessageContent(msg)
+    // Route message
     const routed = router.route(msg.text || '')
     lastUserByAgent.set(routed.agentId, userId)
 
-    const connected = socketServer.getConnectedAgents()
-    if (!connected.includes(routed.agentId)) {
-      console.log(`[hub] Agent ${routed.agentId} not connected, dropping message`)
-      weixin.send(userId, `⚠ Agent "${routed.agentId}" 不在线。在线: ${connected.join(', ') || '无'}`)
+    // Unknown agent
+    if (routed.unknownAgent) {
+      const available = router.getAgentNames()
+      await weixin.send(userId,
+        `⚠ Agent "${routed.agentId}" 不存在，可用的 agent: ${available.join(', ') || '无'}`)
       return
     }
 
-    socketServer.send(routed.agentId, {
+    // Intercepted commands (restart, effort)
+    if (routed.intercepted) {
+      switch (routed.intercepted.command) {
+        case 'restart': {
+          await weixin.send(userId, `正在重启 ${routed.agentId}...`)
+          const result = await agentManager.restart(routed.agentId)
+          if (result.success) {
+            await weixin.send(userId, `✓ ${routed.agentId} 已重启`)
+          } else {
+            await weixin.send(userId, `✗ 重启失败: ${result.error}`)
+          }
+          return
+        }
+        case 'effort': {
+          const effort = routed.intercepted.args![0]
+          agentManager.updateEffort(routed.agentId, effort)
+          await weixin.send(userId, `正在以 --effort ${effort} 重启 ${routed.agentId}...`)
+          const result = await agentManager.restart(routed.agentId)
+          if (result.success) {
+            await weixin.send(userId, `✓ ${routed.agentId} 已重启 (effort: ${effort})`)
+          } else {
+            await weixin.send(userId, `✗ 重启失败: ${result.error}`)
+          }
+          return
+        }
+      }
+    }
+
+    // Check if agent is connected
+    const connected = socketServer.getConnectedAgents()
+    if (!connected.includes(routed.agentId)) {
+      console.log(`[hub] Agent ${routed.agentId} not connected, dropping message`)
+      await weixin.send(userId,
+        `⚠ Agent "${routed.agentId}" 不在线。在线: ${connected.join(', ') || '无'}`)
+      return
+    }
+
+    // Forward to spoke — use routed.text (with @mention stripped)
+    const text = buildMessageContent(msg, routed.text)
+    console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
+    const sent = socketServer.send(routed.agentId, {
       type: 'message',
       userId,
       text,
@@ -153,16 +285,37 @@ export async function startHub() {
       mediaPath: msg.mediaPath ?? undefined,
       timestamp: msg.timestamp?.toISOString() ?? new Date().toISOString(),
     })
+    if (!sent) {
+      console.log(`[hub] ⚠ Failed to send to ${routed.agentId} (socket gone)`)
+    }
   })
 
   // --- Start everything ---
   socketServer.start()
   await weixin.login()
   weixin.startListening()
+
+  // Auto-start agents if requested
+  if (options?.autoStartAgents) {
+    agentManager.startAutoAgents()
+  }
+
+  // Graceful shutdown
+  const shutdown = async () => {
+    console.log('[hub] Shutting down...')
+    clearInterval(cleanupInterval)
+    await agentManager.stopAll()
+    socketServer.stop()
+    process.exit(0)
+  }
+  process.on('SIGTERM', shutdown)
+  process.on('SIGINT', shutdown)
+
   await weixin.startPolling()
 }
 
-function buildMessageContent(msg: any): string {
+/** Build the text content forwarded to the spoke. Uses routedText (with @mention stripped). */
+function buildMessageContent(msg: any, routedText: string): string {
   if (msg.type === 'voice' && msg.voiceText) {
     return `[微信 ${msg.userId}] (语音转文字) ${msg.voiceText}`
   } else if (msg.type === 'voice') {
@@ -172,7 +325,7 @@ function buildMessageContent(msg: any): string {
   } else if (msg.type !== 'text') {
     return `[微信 ${msg.userId}] (${msg.type} 消息，下载失败)`
   }
-  return `[微信 ${msg.userId}] ${msg.text}`
+  return `[微信 ${msg.userId}] ${routedText}`
 }
 
 // Run if executed directly (not imported)

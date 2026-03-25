@@ -15,7 +15,7 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { SpokeSocketClient } from './socket-client.js'
-import { createChannelServer, setupTools, connectTransport } from './channel-server.js'
+import { createChannelServer, setupTools, connectTransport, handleManagementResult } from './channel-server.js'
 import { PermissionRelay } from './permission.js'
 import type { HubToSpoke } from '../shared/types.js'
 
@@ -48,19 +48,10 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
       // Forward to CC as channel notification
       tools.setLastUserId(msg.userId)
 
-      let content: string
-      if (msg.msgType === 'voice') {
-        content = msg.text
-      } else if (msg.mediaPath) {
-        content = msg.text
-      } else {
-        content = msg.text
-      }
-
       server.notification({
         method: 'notifications/claude/channel',
         params: {
-          content,
+          content: msg.text,
           meta: {
             userId: msg.userId,
             type: msg.msgType,
@@ -77,12 +68,24 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
       permissionRelay.handleVerdict(msg.requestId, msg.behavior, msg.toolName)
       break
     }
+    case 'management_result': {
+      handleManagementResult(msg)
+      break
+    }
   }
 })
 
 const tools = setupTools(server, agentId, socketClient)
 const permissionRelay = new PermissionRelay(agentId, server, socketClient)
 permissionRelay.setup()
+
+// --- Exit when CC disconnects (stdin EOF = CC process exited) ---
+process.stdin.on('end', () => {
+  console.log(`[spoke:${agentId}] CC disconnected (stdin EOF), exiting`)
+  socketClient.disconnect()
+  process.exit(0)
+})
+process.stdin.resume() // Ensure 'end' event fires even if MCP transport pauses stdin
 
 // --- Start ---
 async function main() {

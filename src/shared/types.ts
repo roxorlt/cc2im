@@ -48,9 +48,37 @@ export interface SpokeToHubStatus {
   status: 'ready' | 'busy' | 'error'
 }
 
-export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission
+// Hub → Spoke: management result
+export interface HubToSpokeManagementResult {
+  type: 'management_result'
+  requestId: string
+  success: boolean
+  data?: any
+  error?: string
+}
 
-export type SpokeToHub = SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout
+// Spoke → Hub: management request
+export interface SpokeToHubManagement {
+  type: 'management'
+  agentId: string
+  requestId: string
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'list'
+  params?: {
+    name?: string
+    cwd?: string
+    claudeArgs?: string[]
+  }
+}
+
+// Spoke → Hub: 首条消息，注册 agentId
+export interface SpokeToHubRegister {
+  type: 'register'
+  agentId: string
+}
+
+export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission | HubToSpokeManagementResult
+
+export type SpokeToHub = SpokeToHubRegister | SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout | SpokeToHubManagement
 
 // Agent 配置
 export interface AgentConfig {

@@ -20,22 +20,23 @@ export class SpokeSocketClient {
     this.onMessage = onMessage
   }
 
+  /**
+   * Start connecting to hub. Resolves immediately — connection happens
+   * in the background with auto-reconnect. This ensures the spoke
+   * process doesn't hang if the hub is unavailable at startup.
+   */
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.doConnect(resolve, reject)
-    })
+    this.doConnect()
+    return Promise.resolve()
   }
 
-  private doConnect(onFirstConnect?: () => void, onFirstError?: (err: Error) => void) {
+  private doConnect() {
     const socket = createConnection(HUB_SOCKET_PATH, () => {
       this.socket = socket
       this.connected = true
       this.reconnectDelay = RECONNECT_INTERVAL
       socket.write(encodeFrame({ type: 'register', agentId: this.agentId }))
       console.log(`[spoke:${this.agentId}] Connected to hub`)
-      onFirstConnect?.()
-      onFirstConnect = undefined
-      onFirstError = undefined
     })
 
     const parser = createFrameParser((frame) => {
@@ -45,11 +46,9 @@ export class SpokeSocketClient {
     socket.on('data', parser)
 
     socket.on('error', (err) => {
-      if (onFirstError) {
-        // 首次连接失败也走重连，不直接 reject
-        console.log(`[spoke:${this.agentId}] Hub not available, retrying...`)
-        onFirstError = undefined
-        onFirstConnect = undefined
+      // Suppress ECONNREFUSED noise — reconnect handles it
+      if ((err as NodeJS.ErrnoException).code !== 'ECONNREFUSED') {
+        console.error(`[spoke:${this.agentId}] Socket error: ${err.message}`)
       }
     })
 
@@ -75,12 +74,18 @@ export class SpokeSocketClient {
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, MAX_RECONNECT_INTERVAL)
   }
 
-  send(msg: SpokeToHub) {
+  /** Send a message. Returns false if not connected (message dropped). */
+  send(msg: SpokeToHub): boolean {
     if (this.socket && this.connected) {
       this.socket.write(encodeFrame(msg))
-    } else {
-      console.log(`[spoke:${this.agentId}] Not connected, dropping message`)
+      return true
     }
+    console.log(`[spoke:${this.agentId}] Not connected, dropping message`)
+    return false
+  }
+
+  isConnected(): boolean {
+    return this.connected
   }
 
   disconnect() {

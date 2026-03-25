@@ -6,6 +6,12 @@
   "bin": {
     "cc2im": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "package.json",
+    "tsconfig.json"
+  ],
   "scripts": {
     "build": "tsc",
     "dev:hub": "npx tsx src/hub/index.ts",

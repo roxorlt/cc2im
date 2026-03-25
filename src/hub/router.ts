@@ -1,23 +1,44 @@
 import type { AgentsConfig } from '../shared/types.js'
 
+export interface RouteResult {
+  agentId: string
+  text: string
+  /** true when @mentioned an agent not in config */
+  unknownAgent: boolean
+  /** intercepted hub command (not forwarded to spoke) */
+  intercepted?: { command: 'restart' | 'effort'; args?: string[] }
+}
+
 export class Router {
   constructor(private config: AgentsConfig) {}
 
-  /**
-   * 解析消息文本，提取 @agentName 和实际内容
-   * "@brain 收录这篇文章" → { agentId: "brain", text: "收录这篇文章" }
-   * "今天天气" → { agentId: config.defaultAgent, text: "今天天气" }
-   */
-  route(text: string): { agentId: string; text: string } {
-    const match = text.match(/^@(\S+)\s+(.+)$/s)
+  route(text: string): RouteResult {
+    const match = text.match(/^@(\S+)\s+([\s\S]+)$/)
     if (match) {
       const name = match[1]
+      const content = match[2].trim()
+
       if (this.config.agents[name]) {
-        return { agentId: name, text: match[2] }
+        // Check for intercepted commands
+        if (/^(重启|restart)$/i.test(content)) {
+          return { agentId: name, text: content, unknownAgent: false, intercepted: { command: 'restart' } }
+        }
+        const effortMatch = content.match(/^\/effort\s+(\S+)$/i)
+        if (effortMatch) {
+          return { agentId: name, text: content, unknownAgent: false, intercepted: { command: 'effort', args: [effortMatch[1]] } }
+        }
+        return { agentId: name, text: content, unknownAgent: false }
       }
-      // @名字不存在 → 仍然路由到 default，保留原文
+
+      // @name not found in config
+      return { agentId: name, text, unknownAgent: true }
     }
-    return { agentId: this.config.defaultAgent, text }
+
+    return { agentId: this.config.defaultAgent, text, unknownAgent: false }
+  }
+
+  getAgentNames(): string[] {
+    return Object.keys(this.config.agents)
   }
 
   updateConfig(config: AgentsConfig) {
