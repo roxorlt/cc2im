@@ -992,6 +992,33 @@ cc2im logs
 - [x] `npx cc2im --help` 输出所有命令说明 ✅
 - [x] cc2wx 仍然正常工作（未被破坏）✅
 
+### Auto-mode 验收
+
+**AC-AM.1: 安全操作自动执行（无微信审批）**
+```
+1. 确保 brain agent 的 autoMode 为 true（默认）
+2. 重启 hub（cc2im install）
+3. 微信发 "帮我看看 ~/brain/README.md 的内容"
+4. 验证：brain 直接读取文件并回复，不弹权限审批
+```
+
+**AC-AM.2: 显式关闭 auto-mode**
+```
+1. 在 agents.json 中设置 brain 的 autoMode: false
+2. 重启 hub
+3. 微信发同样的消息
+4. 验证：微信收到权限审批弹窗（Read 工具）
+5. 测完恢复 autoMode: true
+```
+
+**AC-AM.3: 新注册 agent 默认启用 auto-mode**
+```
+1. 微信发 "注册一个 agent 叫 test2，目录是 /tmp/test2"
+2. 检查 agents.json：test2 没有显式 autoMode 字段（默认 true）
+3. 启动 test2，微信发 @test2 读取某文件
+4. 验证：不弹权限审批
+```
+
 ---
 
 ## 开发日志

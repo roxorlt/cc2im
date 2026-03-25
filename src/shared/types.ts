@@ -87,6 +87,7 @@ export interface AgentConfig {
   claudeArgs?: string[]  // 额外 claude CLI 参数
   createdAt: string
   autoStart?: boolean    // hub 启动时自动拉起
+  autoMode?: boolean     // 启用 CC auto-mode（自动批准安全操作，默认 true）
 }
 
 // agents.json 结构

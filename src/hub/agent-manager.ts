@@ -111,8 +111,12 @@ export class AgentManager {
     const agentDir = join(SOCKET_DIR, 'agents', name)
     mkdirSync(agentDir, { recursive: true })
 
+    // autoMode defaults to true — auto-approve safe operations, deny risky ones
+    const useAutoMode = agent.autoMode !== false
+
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
+      ...(useAutoMode ? ['--enable-auto-mode'] : []),
       ...(agent.claudeArgs || []),
     ]
 
