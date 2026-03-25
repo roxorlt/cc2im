@@ -935,9 +935,9 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
 
 ---
 
-### Phase 3 验收：后台服务化
+### Phase 3 验收：后台服务化 ✅ 2026-03-25
 
-**AC-3.1: launchd 安装**
+**AC-3.1: launchd 安装** ✅ 2026-03-25
 ```bash
 cc2im install
 # 验证：
@@ -945,7 +945,7 @@ launchctl list | grep cc2im && echo "PASS" || echo "FAIL"
 test -f ~/Library/LaunchAgents/com.cc2im.hub.plist && echo "PASS" || echo "FAIL"
 ```
 
-**AC-3.2: 关终端仍在线**
+**AC-3.2: 关终端仍在线** ✅ 2026-03-25
 ```
 1. cc2im install（已安装 launchd 服务）
 2. 关闭所有终端窗口
@@ -953,14 +953,14 @@ test -f ~/Library/LaunchAgents/com.cc2im.hub.plist && echo "PASS" || echo "FAIL"
 4. 验证：收到 CC 回复（hub 在后台运行）
 ```
 
-**AC-3.3: 合盖不断线**
+**AC-3.3: 合盖不断线** ✅ 2026-03-25
 ```
 1. MacBook 合盖 30 秒后打开
 2. 手机微信发消息
 3. 验证：收到 CC 回复（caffeinate 防休眠生效）
 ```
 
-**AC-3.4: 崩溃自动重启**
+**AC-3.4: 崩溃自动重启** ✅ 2026-03-25
 ```bash
 # 找到 hub 进程并杀掉
 kill $(pgrep -f "cc2im.*hub")
@@ -969,14 +969,14 @@ sleep 5
 pgrep -f "cc2im.*hub" && echo "PASS: restarted" || echo "FAIL: not restarted"
 ```
 
-**AC-3.5: 卸载**
+**AC-3.5: 卸载** ✅ 2026-03-25
 ```bash
 cc2im uninstall
 launchctl list | grep cc2im && echo "FAIL: still loaded" || echo "PASS: unloaded"
 test -f ~/Library/LaunchAgents/com.cc2im.hub.plist && echo "FAIL: plist exists" || echo "PASS: cleaned"
 ```
 
-**AC-3.6: 日志查看**
+**AC-3.6: 日志查看** ✅ 2026-03-25
 ```bash
 cc2im logs
 # 验证：输出 hub 的实时日志（tail -f）
@@ -1032,3 +1032,11 @@ AC-2.3 解决后，AC-2.4 ~ AC-2.8 一次通过，无额外代码改动：
 - **AC-2.6** 路由层直接拦截未知 agent，返回可用列表
 - **AC-2.7** Permission verdict 正确路由回请求方 agent（demo 的 Bash 权限不会误发给 brain）
 - **AC-2.8** @demo 重启：code 143 终止 → 新进程启动 → spoke 重注册 → context 清空确认
+
+Phase 3 全部一次通过，无额外代码改动：
+- **AC-3.1** `cc2im install` 写入 plist + launchctl load，hub 后台启动 + brain autoStart
+- **AC-3.2** 关闭所有终端后微信发消息，正常收到回复
+- **AC-3.3** MacBook 合盖 30s 后发消息，正常收到回复（caffeinate 生效）
+- **AC-3.4** kill hub 进程后 5s 内 launchd 自动重启，新 PID 50812（旧 49979）
+- **AC-3.5** `cc2im uninstall` 正确 unload + 删除 plist
+- **AC-3.6** `cc2im logs` 输出 hub.log + error.log 实时日志
