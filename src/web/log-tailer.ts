@@ -18,8 +18,20 @@ export class LogTailer {
     if (!existsSync(filePath)) return
     if (this.watchers.has(source)) return
 
-    // Start from current end of file
+    // Load last 50 lines as initial context, then tail new lines
     const stat = statSync(filePath)
+    const INITIAL_BYTES = Math.min(stat.size, 8192) // Read last 8KB for initial lines
+    const startOffset = Math.max(0, stat.size - INITIAL_BYTES)
+    try {
+      const buf = Buffer.alloc(INITIAL_BYTES)
+      const fd = require('fs').openSync(filePath, 'r')
+      require('fs').readSync(fd, buf, 0, INITIAL_BYTES, startOffset)
+      require('fs').closeSync(fd)
+      const lines = buf.toString('utf8').split('\n').filter(l => l.trim())
+      for (const line of lines.slice(-50)) {
+        this.onLine(source, line)
+      }
+    } catch {}
     this.offsets.set(source, stat.size)
 
     const watcher = watch(filePath, () => {
