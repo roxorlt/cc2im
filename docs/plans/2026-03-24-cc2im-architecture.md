@@ -986,11 +986,11 @@ cc2im logs
 
 ### 全局验收（发布前 checklist）
 
-- [ ] `npm pack --dry-run` 不包含 `docs/plans/` 目录
-- [ ] `npm pack --dry-run` 不包含个人路径、API key、token
-- [ ] README 包含安装说明、使用说明、架构图
-- [ ] `npx cc2im --help` 输出所有命令说明
-- [ ] cc2wx 仍然正常工作（未被破坏）
+- [x] `npm pack --dry-run` 不包含 `docs/plans/` 目录 ✅
+- [x] `npm pack --dry-run` 不包含个人路径、API key、token ✅
+- [x] README 包含安装说明、使用说明、架构图 ✅
+- [x] `npx cc2im --help` 输出所有命令说明 ✅
+- [x] cc2wx 仍然正常工作（未被破坏）✅
 
 ---
 
