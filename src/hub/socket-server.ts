@@ -29,6 +29,7 @@ function probeSocket(socketPath: string): Promise<boolean> {
 interface ConnectedSpoke {
   agentId: string
   socket: Socket
+  pid?: number
 }
 
 const HEARTBEAT_TIMEOUT_MS = 45_000 // 3 missed heartbeats (15s interval)
@@ -39,10 +40,15 @@ export class HubSocketServer {
   private monitors = new Set<Socket>()
   private server = createServer()
   private onMessage: (agentId: string, msg: SpokeToHub) => void
+  private onEvict?: (agentId: string) => void
   private heartbeatChecker: ReturnType<typeof setInterval> | null = null
 
-  constructor(onMessage: (agentId: string, msg: SpokeToHub) => void) {
+  constructor(
+    onMessage: (agentId: string, msg: SpokeToHub) => void,
+    onEvict?: (agentId: string) => void,
+  ) {
     this.onMessage = onMessage
+    this.onEvict = onEvict
   }
 
   async start() {
@@ -83,7 +89,7 @@ export class HubSocketServer {
             if (existing && existing.socket !== socket) {
               console.log(`[hub] Replacing stale connection for ${agentId}`)
             }
-            this.spokes.set(agentId!, { agentId: agentId!, socket })
+            this.spokes.set(agentId!, { agentId: agentId!, socket, pid: frame.pid as number | undefined })
             this.lastHeartbeat.set(agentId!, Date.now())
             console.log(`[hub] Spoke registered: ${agentId}`)
             this.broadcast({ kind: 'agent_online', agentId: agentId!, timestamp: new Date().toISOString() })
@@ -140,6 +146,15 @@ export class HubSocketServer {
             this.spokes.delete(agentId)
             this.lastHeartbeat.delete(agentId)
             this.broadcast({ kind: 'agent_offline', agentId, timestamp: new Date().toISOString() })
+            if (spoke.pid) {
+              try {
+                process.kill(spoke.pid, 'SIGTERM')
+                console.log(`[hub] Sent SIGTERM to zombie spoke "${agentId}" (pid ${spoke.pid})`)
+              } catch {
+                // Process already dead — that's fine
+              }
+            }
+            this.onEvict?.(agentId)
           }
         }
       }

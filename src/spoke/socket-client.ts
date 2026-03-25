@@ -35,7 +35,7 @@ export class SpokeSocketClient {
       this.socket = socket
       this.connected = true
       this.reconnectDelay = RECONNECT_INTERVAL
-      socket.write(encodeFrame({ type: 'register', agentId: this.agentId }))
+      socket.write(encodeFrame({ type: 'register', agentId: this.agentId, pid: process.pid }))
       console.log(`[spoke:${this.agentId}] Connected to hub`)
     })
 

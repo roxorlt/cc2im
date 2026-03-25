@@ -75,6 +75,7 @@ export interface SpokeToHubManagement {
 export interface SpokeToHubRegister {
   type: 'register'
   agentId: string
+  pid?: number  // spoke 进程 PID，用于 hub-side kill
 }
 
 export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission | HubToSpokeManagementResult
