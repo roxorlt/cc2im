@@ -25,6 +25,19 @@ import { ensureMcpJson } from './shared/mcp-config.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 const BASE_URL = 'https://ilinkai.weixin.qq.com'
+
+const BANNER = [
+  '',
+  '\x1b[36m\x1b[1m   ██████╗ ██████╗██████╗ ██╗███╗   ███╗\x1b[0m',
+  '\x1b[36m\x1b[1m  ██╔════╝██╔════╝╚════██╗██║████╗ ████║\x1b[0m',
+  '\x1b[36m\x1b[1m  ██║     ██║      █████╔╝██║██╔████╔██║\x1b[0m',
+  '\x1b[36m\x1b[1m  ██║     ██║     ██╔═══╝ ██║██║╚██╔╝██║\x1b[0m',
+  '\x1b[36m\x1b[1m  ╚██████╗╚██████╗███████╗██║██║ ╚═╝ ██║\x1b[0m',
+  '\x1b[36m\x1b[1m   ╚═════╝ ╚═════╝╚══════╝╚═╝╚═╝     ╚═╝\x1b[0m',
+  '\x1b[2m    Claude Code ↔ WeChat IM Gateway\x1b[0m',
+  '\x1b[2m              by \x1b[0m\x1b[33mroxorlt\x1b[0m',
+  '',
+].join('\n')
 const CRED_DIR = join(homedir(), '.weixin-bot')
 const CRED_PATH = join(CRED_DIR, 'credentials.json')
 const POLL_INTERVAL = 2000
@@ -60,6 +73,7 @@ function ensureDefaultConfig() {
 // --- Commands ---
 
 async function login() {
+  console.log(BANNER)
   console.log('正在获取登录二维码...\n')
 
   let qrData: any
