@@ -6,7 +6,7 @@
  */
 
 import { createServer } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { MonitorClient } from './monitor-client.js'
@@ -33,13 +33,30 @@ export async function startWeb(options: { port: number }) {
 
   // --- Track agent state from monitor events ---
   const agentState = new Map<string, { status: string; onlineSince?: string }>()
-  const messageHistory: Array<{ event: HubEventData; receivedAt: string }> = []
   const MAX_HISTORY = 200
+  const HISTORY_PATH = join(SOCKET_DIR, 'web-messages.json')
 
+  // Load persisted history on startup
+  let messageHistory: Array<{ event: HubEventData; receivedAt: string }> = []
+  try {
+    if (existsSync(HISTORY_PATH)) {
+      messageHistory = JSON.parse(readFileSync(HISTORY_PATH, 'utf8')).slice(-MAX_HISTORY)
+    }
+  } catch {}
+
+  let historyDirty = false
   function pushHistory(event: HubEventData) {
     messageHistory.push({ event, receivedAt: new Date().toISOString() })
     if (messageHistory.length > MAX_HISTORY) messageHistory.shift()
+    historyDirty = true
   }
+
+  // Persist to disk every 5s if changed
+  setInterval(() => {
+    if (!historyDirty) return
+    historyDirty = false
+    try { writeFileSync(HISTORY_PATH, JSON.stringify(messageHistory)) } catch {}
+  }, 5000)
 
   // --- Monitor Client ---
   const monitor = new MonitorClient((hubEvent: HubEvent) => {
