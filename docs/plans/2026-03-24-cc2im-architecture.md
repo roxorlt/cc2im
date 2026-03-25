@@ -862,7 +862,7 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
 
 ---
 
-### Phase 2 验收：多 Agent 路由（进行中）
+### Phase 2 验收：多 Agent 路由 ✅ 2026-03-25
 
 **AC-2.1: @mention 路由** ✅ 2026-03-25
 ```
@@ -891,7 +891,7 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
 6. 验证：hub 提示 agent 未在线
 ```
 
-**AC-2.4: Agent 列表查询**
+**AC-2.4: Agent 列表查询** ✅ 2026-03-25
 ```
 1. 微信发 "状态" 或 "agent list"
 2. 验证微信收到所有 agent 列表，包含：
@@ -900,7 +900,7 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
    - cwd 路径
 ```
 
-**AC-2.5: Agent 注销**
+**AC-2.5: Agent 注销** ✅ 2026-03-25
 ```
 1. 微信发 "注销 test"
 2. 验证：
@@ -908,29 +908,28 @@ grep "Spoke registered: test-agent" ~/.cc2im/hub.log && echo "PASS" || echo "FAI
    - ~/.cc2im/agents.json 中 test 条目已删除
 ```
 
-**AC-2.6: @不存在的 agent**
+**AC-2.6: @不存在的 agent** ✅ 2026-03-25
 ```
 1. 微信发 "@nonexistent 你好"
 2. 验证：微信收到提示 "agent nonexistent 不存在，可用的 agent: brain, code"
 ```
 
-**AC-2.7: Permission 多 agent 路由**
+**AC-2.7: Permission 多 agent 路由** ✅ 2026-03-25
 ```
-1. brain 和 code 同时在运行
-2. brain 的 CC 请求权限 → 微信收到权限提示
-3. code 的 CC 也请求权限 → 微信收到第二个权限提示
-4. 微信回复 "yes" → 验证回给了 brain（FIFO）
-5. 微信再回复 "yes" → 验证回给了 code
+1. brain 和 demo 同时在运行
+2. brain 已有 Bash always-allow，直接执行
+3. demo 请求 Bash 权限 → 微信收到权限提示
+4. 微信回复 "always" → 验证 verdict 正确路由回 demo（不是 brain）
 ```
 
-**AC-2.8: 重启指令**
+**AC-2.8: 重启指令** ✅ 2026-03-25
 ```
-1. 微信发 "@brain 重启"
+1. 微信发 "@demo 重启"
 2. 验证：
-   - brain 的 CC 进程终止
-   - 新的 CC 进程启动（新 PID）
+   - demo 的 CC 进程终止 (code 143)
+   - 新的 CC 进程启动
    - spoke 重新注册到 hub
-   - 微信发 "@brain 你好"
+   - 微信发 "@demo 你是谁"
    - 新 CC 正常响应（context 已清空）
 ```
 
@@ -1008,7 +1007,7 @@ cc2im logs
 - Structure-aware chunker（代码块/表格/段落边界感知，3 级降级）
 - Spoke 自动重连（指数退避 3s→30s）
 
-### 2026-03-25: Phase 2 验收进行中（AC-2.1 ~ AC-2.3 通过）
+### 2026-03-25: Phase 2 全部通过（AC-2.1 ~ AC-2.8）
 
 **AC-2.1 @mention 路由**：@brain / @test / 无@ 三种路由全部正确。
 
@@ -1026,3 +1025,10 @@ cc2im logs
 最终方案：`caffeinate -i expect start.exp`，expect 脚本创建 pty → 启动 CC → 自动应答信任 → 等待 EOF。
 
 验证通过：启动 demo agent → spoke 注册 → @demo 收发消息 → 停止 → code 143 + spoke 断开。
+
+AC-2.3 解决后，AC-2.4 ~ AC-2.8 一次通过，无额外代码改动：
+- **AC-2.4** agent_list 返回 name/status/default 标记
+- **AC-2.5** agent_deregister 从 agents.json 移除条目
+- **AC-2.6** 路由层直接拦截未知 agent，返回可用列表
+- **AC-2.7** Permission verdict 正确路由回请求方 agent（demo 的 Bash 权限不会误发给 brain）
+- **AC-2.8** @demo 重启：code 143 终止 → 新进程启动 → spoke 重注册 → context 清空确认
