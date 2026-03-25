@@ -106,6 +106,7 @@ export interface MonitorRegister {
 export interface HubEventData {
   kind: 'agent_online' | 'agent_offline' | 'message_in' | 'message_out'
     | 'permission_request' | 'permission_verdict' | 'agent_started' | 'agent_stopped'
+    | 'config_changed'
   agentId: string
   timestamp: string
   userId?: string

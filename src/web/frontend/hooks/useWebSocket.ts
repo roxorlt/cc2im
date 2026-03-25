@@ -67,14 +67,30 @@ export function useWebSocket() {
       if (msg.type === 'hub_event') {
         const ev = msg.event as HubEventData
 
-        if (ev.kind === 'agent_online') {
-          setAgents(prev => prev.map(a =>
-            a.name === ev.agentId ? { ...a, status: 'connected', onlineSince: ev.timestamp } : a
-          ))
-        } else if (ev.kind === 'agent_offline') {
-          setAgents(prev => prev.map(a =>
-            a.name === ev.agentId ? { ...a, status: 'stopped', onlineSince: undefined } : a
-          ))
+        // Re-fetch agent list on any state change (covers register, deregister,
+        // start, stop, restart, online, offline, config_changed)
+        if (['agent_online', 'agent_offline', 'agent_started', 'agent_stopped', 'config_changed'].includes(ev.kind)) {
+          fetch('/api/agents').then(r => r.json()).then(config => {
+            const connected = new Set<string>()
+            // Keep track of which agents we know are online from events
+            setAgents(prev => {
+              prev.forEach(a => { if (a.status === 'connected') connected.add(a.name) })
+              return Object.entries(config.agents || {}).map(([name, agent]: [string, any]) => {
+                const wasConnected = connected.has(name)
+                const isOnline = ev.kind === 'agent_online' && ev.agentId === name ? true
+                  : ev.kind === 'agent_offline' && ev.agentId === name ? false
+                  : wasConnected
+                return {
+                  name,
+                  status: isOnline ? 'connected' as const : 'stopped' as const,
+                  cwd: agent.cwd,
+                  autoStart: agent.autoStart ?? false,
+                  isDefault: config.defaultAgent === name,
+                  onlineSince: isOnline ? (prev.find(p => p.name === name)?.onlineSince || ev.timestamp) : undefined,
+                }
+              })
+            })
+          }).catch(() => {})
         }
 
         if (['message_in', 'message_out', 'permission_request', 'permission_verdict'].includes(ev.kind)) {

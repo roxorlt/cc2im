@@ -157,19 +157,25 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
               msg.params!.cwd!,
               msg.params!.claudeArgs,
             )
-            if (result.success) router.updateConfig(agentManager.getConfig())
+            if (result.success) {
+              router.updateConfig(agentManager.getConfig())
+              socketServer.broadcast({ kind: 'config_changed', agentId: msg.params!.name!, timestamp: new Date().toISOString() })
+            }
             break
           }
           case 'deregister': {
             if (isSelfAction) {
-              // Reply first, then tear down
               sendResult({ success: true })
               await agentManager.deregister(msg.params!.name!)
               router.updateConfig(agentManager.getConfig())
+              socketServer.broadcast({ kind: 'config_changed', agentId: msg.params!.name!, timestamp: new Date().toISOString() })
               break
             }
             result = await agentManager.deregister(msg.params!.name!)
-            if (result.success) router.updateConfig(agentManager.getConfig())
+            if (result.success) {
+              router.updateConfig(agentManager.getConfig())
+              socketServer.broadcast({ kind: 'config_changed', agentId: msg.params!.name!, timestamp: new Date().toISOString() })
+            }
             break
           }
           case 'start': {
