@@ -46,7 +46,7 @@ const socketClient = new SpokeSocketClient(agentId, (msg: HubToSpoke) => {
   switch (msg.type) {
     case 'message': {
       // Forward to CC as channel notification
-      tools.pushReplyTarget(msg.userId)
+      tools.setLastUserId(msg.userId)
 
       server.notification({
         method: 'notifications/claude/channel',

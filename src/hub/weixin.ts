@@ -88,7 +88,9 @@ export class WeixinConnection {
       }
 
       if (this.onIncoming) {
-        this.onIncoming({ ...msg, mediaPath, voiceText })
+        Promise.resolve(this.onIncoming({ ...msg, mediaPath, voiceText })).catch((err) => {
+          console.error(`[weixin-bot] Message handler error: ${err instanceof Error ? err.message : String(err)}`)
+        })
       }
     })
   }

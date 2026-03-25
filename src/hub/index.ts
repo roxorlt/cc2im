@@ -295,7 +295,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   })
 
   // --- Start everything ---
-  socketServer.start()
+  await socketServer.start()
   await weixin.login()
   weixin.startListening()
 

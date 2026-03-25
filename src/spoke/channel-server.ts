@@ -27,6 +27,7 @@ export function createChannelServer(agentId: string) {
       instructions: [
         '微信消息通过 <channel source="cc2im"> 到达。',
         '使用 weixin_reply 工具回复微信消息。',
+        '回复时从 channel notification 的 meta.userId 提取用户 ID，传入 user_id 参数。',
         '回复不限长度，cc2im 会自动分段发送到微信。',
       ].join('\n'),
     },
@@ -84,10 +85,9 @@ function sendManagement(
 }
 
 export function setupTools(server: Server, agentId: string, socketClient: SpokeSocketClient) {
-  // Queue of userIds from incoming messages, in arrival order.
-  // CC processes messages serially: push on message arrival, shift on reply.
-  // This prevents a later message from stealing an earlier message's reply target.
-  const replyTargets: string[] = []
+  // Simple fallback: most recent userId. CC should pass explicit user_id from
+  // notification meta whenever possible; this is only a last-resort default.
+  let lastUserId: string | null = null
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: [
@@ -100,7 +100,7 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
             text: { type: 'string', description: '回复内容' },
             user_id: {
               type: 'string',
-              description: '目标用户 ID（可选，默认回复最近一条消息的发送者）',
+              description: '目标用户 ID — 从 channel notification 的 meta.userId 提取',
             },
           },
           required: ['text'],
@@ -173,8 +173,7 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
     switch (name) {
       case 'weixin_reply': {
         const { text, user_id } = args as { text: string; user_id?: string }
-        // Explicit user_id takes priority; otherwise consume from the queue (FIFO)
-        const targetId = user_id || replyTargets.shift() || null
+        const targetId = user_id || lastUserId
 
         if (!targetId) {
           return {
@@ -276,16 +275,16 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
     }
   })
 
-  function pushReplyTarget(userId: string) {
-    replyTargets.push(userId)
+  function setLastUserId(userId: string) {
+    lastUserId = userId
   }
 
-  /** The userId of the message currently being processed (front of queue). */
+  /** The userId of the most recent message (for permission routing). */
   function getCurrentUserId(): string | null {
-    return replyTargets[0] || null
+    return lastUserId
   }
 
-  return { pushReplyTarget, getCurrentUserId }
+  return { setLastUserId, getCurrentUserId }
 }
 
 export async function connectTransport(server: Server) {
