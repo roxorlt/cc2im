@@ -1,0 +1,102 @@
+import React, { useState } from 'react'
+import { useWebSocket } from './hooks/useWebSocket'
+import { useTokens } from './hooks/useTokens'
+import { TopBar } from './components/TopBar'
+import { AgentList } from './components/AgentList'
+import { MessageFlow } from './components/MessageFlow'
+import { LogViewer } from './components/LogViewer'
+
+const tabs = [
+  { id: 'messages' as const, label: '消息流' },
+  { id: 'logs' as const, label: '日志' },
+]
+
+export function App() {
+  const { agents, hubConnected, wsConnected, messages, logs } = useWebSocket()
+  const tokenStats = useTokens()
+  const [selected, setSelected] = useState<string | null>(null)
+  const [tab, setTab] = useState<'messages' | 'logs'>('messages')
+
+  const activeAgent = selected || agents[0]?.name || null
+
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
+      <TopBar tokenStats={tokenStats} hubConnected={hubConnected} />
+
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <AgentList agents={agents} selected={activeAgent} onSelect={setSelected} />
+
+        {activeAgent ? (
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
+            {/* Tab bar */}
+            <div style={{
+              display: 'flex', gap: 0,
+              borderBottom: '1px solid var(--border)',
+              background: 'var(--bg-panel)',
+            }}>
+              {tabs.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setTab(t.id)}
+                  style={{
+                    padding: '10px 20px',
+                    fontSize: 12, fontWeight: 500,
+                    fontFamily: 'var(--font-mono)',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: tab === t.id ? 'var(--accent)' : 'var(--text-dim)',
+                    borderBottom: `2px solid ${tab === t.id ? 'var(--accent)' : 'transparent'}`,
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {t.label}
+                </button>
+              ))}
+
+              {/* Active agent indicator */}
+              <div style={{
+                marginLeft: 'auto', padding: '10px 16px',
+                fontSize: 10, color: 'var(--text-muted)',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                <span style={{ color: 'var(--text-dim)' }}>viewing</span>
+                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeAgent}</span>
+              </div>
+            </div>
+
+            {tab === 'messages'
+              ? <MessageFlow messages={messages} agentId={activeAgent} />
+              : <LogViewer logs={logs} source={activeAgent} />
+            }
+          </div>
+        ) : (
+          <div style={{
+            flex: 1, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', gap: 12,
+          }}>
+            <span style={{ fontSize: 36, color: 'var(--text-muted)', opacity: 0.2 }}>⬡</span>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>选择 Agent</span>
+          </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        padding: '4px 16px',
+        fontSize: 9, color: 'var(--text-muted)',
+        background: 'var(--bg-panel)',
+        borderTop: '1px solid var(--border)',
+      }}>
+        <span>cc2im v0.1.0</span>
+        <span>
+          <span style={{
+            display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+            background: wsConnected ? 'var(--green)' : 'var(--red)',
+            marginRight: 4, verticalAlign: 'middle',
+          }} />
+          {wsConnected ? 'ws connected' : 'ws reconnecting'}
+        </span>
+      </div>
+    </div>
+  )
+}

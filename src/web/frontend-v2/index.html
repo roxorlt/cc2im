@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>cc2im // command center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg-deep: #05080f;
+      --bg-panel: #0a0f1a;
+      --bg-card: #0f1520;
+      --bg-card-hover: #141c2b;
+      --bg-card-active: #1a2438;
+      --border: #1a2435;
+      --border-bright: #243352;
+      --text: #c8d1dc;
+      --text-dim: #5a6a80;
+      --text-muted: #384860;
+      --accent: #e0a643;
+      --accent-dim: rgba(224, 166, 67, 0.15);
+      --green: #10b981;
+      --green-glow: rgba(16, 185, 129, 0.4);
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
+      --font-display: 'Outfit', sans-serif;
+    }
+    body {
+      font-family: var(--font-mono);
+      background: var(--bg-deep);
+      color: var(--text);
+      overflow: hidden;
+    }
+    /* Subtle grid texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(224, 166, 67, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(224, 166, 67, 0.02) 1px, transparent 1px);
+      background-size: 40px 40px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    #root { position: relative; z-index: 1; }
+
+    @keyframes pulse-green {
+      0%, 100% { box-shadow: 0 0 4px var(--green-glow); }
+      50% { box-shadow: 0 0 12px var(--green-glow), 0 0 24px rgba(16, 185, 129, 0.15); }
+    }
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slide-in-left {
+      from { opacity: 0; transform: translateX(-8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes slide-in-right {
+      from { opacity: 0; transform: translateX(8px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="./main.tsx"></script>
+</body>
+</html>
