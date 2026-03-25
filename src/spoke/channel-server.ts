@@ -182,12 +182,19 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
           }
         }
 
-        socketClient.send({
+        const sent = socketClient.send({
           type: 'reply',
           agentId,
           userId: targetId,
           text,
         })
+
+        if (!sent) {
+          return {
+            content: [{ type: 'text' as const, text: 'Hub 未连接，消息未送达。稍后重试。' }],
+            isError: true,
+          }
+        }
 
         return {
           content: [{ type: 'text' as const, text: `已发送到微信用户 ${targetId}` }],

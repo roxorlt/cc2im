@@ -79,7 +79,7 @@ export class PermissionRelay {
       }
 
       // Forward to hub via socket, including originating userId for routing
-      this.socketClient.send({
+      const sent = this.socketClient.send({
         type: 'permission_request',
         agentId: this.agentId,
         requestId: params.request_id,
@@ -88,6 +88,16 @@ export class PermissionRelay {
         inputPreview: params.input_preview,
         userId: this.getCurrentUserId?.() || undefined,
       })
+
+      // If hub is disconnected, deny immediately instead of waiting 5 min
+      if (!sent) {
+        console.log(`[spoke:${this.agentId}] Hub disconnected, auto-denying permission: ${params.tool_name}`)
+        await this.server.notification({
+          method: 'notifications/claude/channel/permission',
+          params: { request_id: params.request_id, behavior: 'deny' },
+        })
+        return
+      }
 
       // Wait for verdict from hub (will be resolved by handleVerdict)
       const behavior = await new Promise<'allow' | 'deny'>((resolve) => {
