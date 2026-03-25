@@ -62,7 +62,12 @@ export async function startWeb(options: { port: number }) {
   })
 
   // --- Log Tailer ---
+  const MAX_LOG_LINES = 200
+  const logBuffer: Array<{ source: string; line: string }> = []
+
   const logTailer = new LogTailer((source, line) => {
+    logBuffer.push({ source, line })
+    if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift()
     broadcastWs({ type: 'log', source, line })
   })
 
@@ -212,6 +217,7 @@ export async function startWeb(options: { port: number }) {
       agents,
       hubConnected: monitor.isConnected(),
       recentMessages: messageHistory.slice(-50),
+      recentLogs: logBuffer.slice(-100),
     }
   }
 

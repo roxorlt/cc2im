@@ -50,16 +50,11 @@ export function TopBar({ tokenStats, hubConnected }: { tokenStats: TokenStats; h
       </span>
 
       <div style={css.stat}>
-        <span style={css.label}>TPD</span>
-        <span style={css.value}>{tpd ? formatNum(Math.round(tpd)) : '-'}</span>
-      </div>
-
-      <div style={css.divider} />
-
-      <div style={css.stat}>
         <span style={css.label}>Context In</span>
-        <span style={css.value}>{todayTokens ? formatNum(todayTokens.input) : '-'}</span>
-        {todayTokens && <span style={css.subValue}>Cache: {formatNum(todayTokens.cacheHit)}</span>}
+        <span style={css.value}>
+          {todayTokens ? formatNum(todayTokens.input) : '-'}
+          {todayTokens && <span style={{ ...css.subValue, marginLeft: 4 }}>(Cache {formatNum(todayTokens.cacheHit)})</span>}
+        </span>
       </div>
 
       <div style={css.stat}>
@@ -70,6 +65,13 @@ export function TopBar({ tokenStats, hubConnected }: { tokenStats: TokenStats; h
       <div style={css.stat}>
         <span style={css.label}>Today Total</span>
         <span style={css.value}>{todayTokens ? formatNum(todayTokens.total) : '-'}</span>
+      </div>
+
+      <div style={css.divider} />
+
+      <div style={css.stat}>
+        <span style={css.label}>TPD</span>
+        <span style={css.value}>{tpd ? Math.round(tpd).toLocaleString() : '-'}</span>
       </div>
     </div>
   )

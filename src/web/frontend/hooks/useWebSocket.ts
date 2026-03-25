@@ -54,10 +54,13 @@ export function useWebSocket() {
       const msg = JSON.parse(e.data)
 
       if (msg.type === 'snapshot') {
-        const snap = msg as Snapshot
+        const snap = msg as any
         setAgents(snap.agents)
         setHubConnected(snap.hubConnected)
         setMessages(snap.recentMessages || [])
+        if (snap.recentLogs) {
+          setLogs(snap.recentLogs.map((l: any) => ({ ...l, ts: new Date().toISOString() })))
+        }
         return
       }
 
