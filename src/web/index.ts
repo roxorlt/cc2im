@@ -10,6 +10,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { MonitorClient } from './monitor-client.js'
+import { getTokenStats } from './token-stats.js'
 import { readStats } from './stats-reader.js'
 import { LogTailer } from './log-tailer.js'
 import { SOCKET_DIR } from '../shared/socket.js'
@@ -103,6 +104,12 @@ export async function startWeb(options: { port: number }) {
     if (url.pathname === '/api/stats') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(readStats() || {}))
+      return
+    }
+
+    if (url.pathname === '/api/tokens') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(getTokenStats()))
       return
     }
 

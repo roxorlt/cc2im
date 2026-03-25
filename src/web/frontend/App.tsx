@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
-import { useStats } from './hooks/useStats'
+import { useTokens } from './hooks/useTokens'
 import { TopBar } from './components/TopBar'
 import { AgentList } from './components/AgentList'
 import { MessageFlow } from './components/MessageFlow'
@@ -19,7 +19,7 @@ const css: Record<string, React.CSSProperties> = {
 
 export function App() {
   const { agents, hubConnected, wsConnected, messages, logs } = useWebSocket()
-  const stats = useStats()
+  const tokenStats = useTokens()
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
 
@@ -28,7 +28,7 @@ export function App() {
 
   return (
     <div style={css.app}>
-      <TopBar stats={stats} hubConnected={hubConnected} />
+      <TopBar tokenStats={tokenStats} hubConnected={hubConnected} />
       <div style={css.main}>
         <AgentList agents={agents} selected={activeAgent} onSelect={setSelected} />
         {activeAgent ? (
