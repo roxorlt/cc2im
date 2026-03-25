@@ -35,6 +35,7 @@ export function AgentList({ agents, selected, onSelect }: {
 }) {
   return (
     <div style={css.list}>
+      <div style={{ padding: '8px 12px', fontSize: 11, color: '#8b949e', textTransform: 'uppercase' as const, letterSpacing: 1 }}>Agents</div>
       {agents.map(a => (
         <div
           key={a.name}

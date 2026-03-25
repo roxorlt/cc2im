@@ -2,7 +2,7 @@
  * Log Tailer — watch log files and emit new lines
  */
 
-import { watch, readFileSync, existsSync, statSync } from 'node:fs'
+import { watch, existsSync, statSync, openSync, readSync, closeSync } from 'node:fs'
 
 export class LogTailer {
   private watchers = new Map<string, ReturnType<typeof watch>>()
@@ -20,18 +20,20 @@ export class LogTailer {
 
     // Load last 50 lines as initial context, then tail new lines
     const stat = statSync(filePath)
-    const INITIAL_BYTES = Math.min(stat.size, 8192) // Read last 8KB for initial lines
+    const INITIAL_BYTES = Math.min(stat.size, 8192)
     const startOffset = Math.max(0, stat.size - INITIAL_BYTES)
     try {
       const buf = Buffer.alloc(INITIAL_BYTES)
-      const fd = require('fs').openSync(filePath, 'r')
-      require('fs').readSync(fd, buf, 0, INITIAL_BYTES, startOffset)
-      require('fs').closeSync(fd)
+      const fd = openSync(filePath, 'r')
+      readSync(fd, buf, 0, INITIAL_BYTES, startOffset)
+      closeSync(fd)
       const lines = buf.toString('utf8').split('\n').filter(l => l.trim())
       for (const line of lines.slice(-50)) {
         this.onLine(source, line)
       }
-    } catch {}
+    } catch (e) {
+      console.error(`[log-tailer] Failed to read initial lines from ${filePath}:`, e)
+    }
     this.offsets.set(source, stat.size)
 
     const watcher = watch(filePath, () => {
@@ -50,20 +52,18 @@ export class LogTailer {
       const stat = statSync(filePath)
       const offset = this.offsets.get(source) || 0
       if (stat.size <= offset) {
-        // File was truncated or no new data
         if (stat.size < offset) this.offsets.set(source, 0)
         return
       }
 
       const buf = Buffer.alloc(stat.size - offset)
-      const fd = require('fs').openSync(filePath, 'r')
-      require('fs').readSync(fd, buf, 0, buf.length, offset)
-      require('fs').closeSync(fd)
+      const fd = openSync(filePath, 'r')
+      readSync(fd, buf, 0, buf.length, offset)
+      closeSync(fd)
 
       this.offsets.set(source, stat.size)
 
-      const text = buf.toString('utf8')
-      for (const line of text.split('\n')) {
+      for (const line of buf.toString('utf8').split('\n')) {
         if (line.trim()) {
           this.onLine(source, line)
         }

@@ -65,10 +65,11 @@ export async function startWeb(options: { port: number }) {
   const MAX_LOG_LINES = 200
   const logBuffer: Array<{ source: string; line: string }> = []
 
+  let wsReady = false
   const logTailer = new LogTailer((source, line) => {
     logBuffer.push({ source, line })
     if (logBuffer.length > MAX_LOG_LINES) logBuffer.shift()
-    broadcastWs({ type: 'log', source, line })
+    if (wsReady) broadcastWs({ type: 'log', source, line })
   })
 
   // Tail hub log
@@ -170,6 +171,7 @@ export async function startWeb(options: { port: number }) {
   // --- WebSocket Server ---
   const wsClients = new Set<WebSocket>()
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' })
+  wsReady = true
 
   wss.on('connection', (ws) => {
     wsClients.add(ws)

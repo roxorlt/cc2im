@@ -70,7 +70,7 @@ export function TopBar({ tokenStats, hubConnected }: { tokenStats: TokenStats; h
       <div style={css.divider} />
 
       <div style={css.stat}>
-        <span style={css.label}>TPD</span>
+        <span style={css.label}>Tokens/Day (30d)</span>
         <span style={css.value}>{tpd ? Math.round(tpd).toLocaleString() : '-'}</span>
       </div>
     </div>
