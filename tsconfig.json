@@ -10,5 +10,5 @@
     "declaration": true
   },
   "include": ["src"],
-  "exclude": ["src/web/frontend"]
+  "exclude": ["src/web/frontend", "src/plugins/web-monitor/frontend-v2"]
 }

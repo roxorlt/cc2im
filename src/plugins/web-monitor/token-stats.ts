@@ -2,11 +2,12 @@
  * Token Stats — parse transcript JSONL files for accurate token usage
  */
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
+const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // Only read files modified in last 30 days
 
 export interface DailyTokens {
   date: string
@@ -43,6 +44,8 @@ function computeTokenStats(): TokenStats {
     return { daily: [], lastUpdated: new Date().toISOString() }
   }
 
+  const cutoff = Date.now() - MAX_AGE_MS
+
   function scanDir(dir: string) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name)
@@ -50,6 +53,9 @@ function computeTokenStats(): TokenStats {
       if (!entry.name.endsWith('.jsonl')) continue
 
       try {
+        // Skip files not modified in the last 30 days
+        if (statSync(full).mtimeMs < cutoff) continue
+
         const content = readFileSync(full, 'utf8')
         for (const line of content.split('\n')) {
           if (!line.includes('input_tokens')) continue

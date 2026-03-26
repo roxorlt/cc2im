@@ -319,7 +319,7 @@ switch (command) {
 
   case 'web': {
     const webPort = parseInt(process.argv.find((a, i) => process.argv[i - 1] === '--port') || '3721')
-    const { startWeb } = await import('./web/index.js')
+    const { startWeb } = await import('./plugins/web-monitor/server.js')
     await startWeb({ port: webPort })
     break
   }

@@ -13,8 +13,8 @@ import { MonitorClient } from './monitor-client.js'
 import { getTokenStats } from './token-stats.js'
 import { readStats } from './stats-reader.js'
 import { LogTailer } from './log-tailer.js'
-import { SOCKET_DIR } from '../shared/socket.js'
-import type { HubEvent, HubEventData } from '../shared/types.js'
+import { SOCKET_DIR } from '../../shared/socket.js'
+import type { HubEvent, HubEventData } from '../../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 
@@ -157,8 +157,8 @@ export async function startWeb(options: { port: number }) {
     }
 
     // Serve frontend static files
-    const frontendDir = join(import.meta.dirname!, '..', '..', 'dist', 'web-frontend')
-    const srcFrontendDir = join(import.meta.dirname!, 'frontend')
+    const frontendDir = join(import.meta.dirname!, '..', '..', '..', 'dist', 'web-frontend')
+    const srcFrontendDir = join(import.meta.dirname!, '..', '..', 'web', 'frontend')
 
     // Try built assets first, then source index.html as fallback
     let filePath = join(frontendDir, url.pathname === '/' ? 'index.html' : url.pathname)

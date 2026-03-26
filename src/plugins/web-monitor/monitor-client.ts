@@ -3,8 +3,8 @@
  */
 
 import { createConnection, Socket } from 'node:net'
-import { HUB_SOCKET_PATH, encodeFrame, createFrameParser } from '../shared/socket.js'
-import type { HubEvent } from '../shared/types.js'
+import { HUB_SOCKET_PATH, encodeFrame, createFrameParser } from '../../shared/socket.js'
+import type { HubEvent } from '../../shared/types.js'
 
 const RECONNECT_INTERVAL = 3000
 const MAX_RECONNECT_INTERVAL = 30000

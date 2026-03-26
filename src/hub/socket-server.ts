@@ -41,14 +41,22 @@ export class HubSocketServer {
   private server = createServer()
   private onMessage: (agentId: string, msg: SpokeToHub) => void
   private onEvict?: (agentId: string) => void
+  private onAgentOnline?: (agentId: string) => void
+  private onAgentOffline?: (agentId: string) => void
   private heartbeatChecker: ReturnType<typeof setInterval> | null = null
 
   constructor(
     onMessage: (agentId: string, msg: SpokeToHub) => void,
-    onEvict?: (agentId: string) => void,
+    opts?: {
+      onEvict?: (agentId: string) => void
+      onAgentOnline?: (agentId: string) => void
+      onAgentOffline?: (agentId: string) => void
+    },
   ) {
     this.onMessage = onMessage
-    this.onEvict = onEvict
+    this.onEvict = opts?.onEvict
+    this.onAgentOnline = opts?.onAgentOnline
+    this.onAgentOffline = opts?.onAgentOffline
   }
 
   async start() {
@@ -102,6 +110,7 @@ export class HubSocketServer {
             this.lastHeartbeat.set(agentId!, Date.now())
             console.log(`[hub] Spoke registered: ${agentId}`)
             this.broadcast({ kind: 'agent_online', agentId: agentId!, timestamp: new Date().toISOString() })
+            this.onAgentOnline?.(agentId!)
             return
           }
         }
@@ -131,6 +140,7 @@ export class HubSocketServer {
             this.lastHeartbeat.delete(agentId)
             console.log(`[hub] Spoke disconnected: ${agentId}`)
             this.broadcast({ kind: 'agent_offline', agentId, timestamp: new Date().toISOString() })
+            this.onAgentOffline?.(agentId)
           }
         }
       })
