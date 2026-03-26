@@ -110,10 +110,17 @@ export function TopBar({ tokenStats, usageStats, hubConnected }: {
 
       <div style={{ flex: 1 }} />
 
-      {/* Cost metrics */}
-      <Metric label="≈ Cost Today" value={formatCost(tokenStats.todayCost)} />
-      <Metric label="≈ Avg/Day" value={formatCost(tokenStats.avgDailyCost)} />
-      <Metric label="Tokens/Day (30d)" value={tpd ? Math.round(tpd).toLocaleString() : '—'} />
+      {/* Cost + TPD compact block */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+        <span style={{ color: 'var(--text-dim)' }}>
+          {'\u2248'} <span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCost(tokenStats.todayCost)}</span> today
+          {' / '}
+          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCost(tokenStats.avgDailyCost)}</span> avg
+        </span>
+        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+          TPD {tpd ? formatNum(Math.round(tpd)) : '—'}
+        </span>
+      </div>
 
       <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
 
