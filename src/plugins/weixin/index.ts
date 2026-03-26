@@ -118,7 +118,10 @@ export function createWeixinPlugin(): Cc2imPlugin {
       // Login and start listening
       await weixin.login()
       weixin.startListening()
-      await weixin.startPolling()
+      // startPolling() is a long-poll loop that never returns — fire and forget
+      weixin.startPolling().catch((err: any) => {
+        console.error(`[weixin] Polling error: ${err.message}`)
+      })
     },
 
     async destroy() {
