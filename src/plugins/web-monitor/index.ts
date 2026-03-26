@@ -6,9 +6,14 @@ export function createWebMonitorPlugin(port = DEFAULT_PORT): Cc2imPlugin {
   return {
     name: 'web-monitor',
     async init(_ctx: HubContext) {
-      const { startWeb } = await import('./server.js')
-      await startWeb({ port })
-      console.log(`[web-monitor] Dashboard at http://127.0.0.1:${port}`)
+      try {
+        const { startWeb } = await import('./server.js')
+        await startWeb({ port })
+        console.log(`[web-monitor] Dashboard at http://127.0.0.1:${port}`)
+      } catch (err: any) {
+        // Don't crash the hub if web server fails to start (e.g., port in use)
+        console.error(`[web-monitor] Failed to start: ${err.message}`)
+      }
     },
     async destroy() {
       // startWeb currently manages its own lifecycle (signal handlers).
