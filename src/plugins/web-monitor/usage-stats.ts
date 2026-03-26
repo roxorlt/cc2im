@@ -9,7 +9,7 @@ export interface UsageStats {
 
 let cachedUsage: UsageStats | null = null
 let lastFetchTime = 0
-const CACHE_TTL_MS = 60_000
+const CACHE_TTL_MS = 5 * 60_000 // 5 minutes — avoid rate limiting
 
 export function getUsageStats(): UsageStats {
   const now = Date.now()
@@ -37,6 +37,10 @@ function fetchUsage(): UsageStats {
       { encoding: 'utf8', timeout: 10000 },
     )
     const data = JSON.parse(res)
+
+    if (data.error) {
+      return { lastUpdated: new Date().toISOString(), error: data.error.message || 'API error' }
+    }
 
     return {
       fiveHour: data.five_hour ? {
