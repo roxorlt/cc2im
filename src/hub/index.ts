@@ -9,6 +9,8 @@ import { WeixinConnection } from './weixin.js'
 import { Router } from './router.js'
 import { AgentManager } from './agent-manager.js'
 import { SOCKET_DIR } from '../shared/socket.js'
+import { HubContextImpl } from './hub-context.js'
+import { PluginManager } from './plugin-manager.js'
 import type { AgentsConfig, SpokeToHub } from '../shared/types.js'
 
 // --- Config ---
@@ -70,8 +72,12 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   // Periodic cleanup of stale permissions
   const cleanupInterval = setInterval(cleanupStalePermissions, 60_000)
 
+  // --- HubContext + PluginManager ---
+  let ctx: HubContextImpl
+
   // --- Socket Server: 接收 spoke 消息 ---
   socketServer = new HubSocketServer(async (agentId: string, msg: SpokeToHub) => {
+    ctx.emit('spoke:message', agentId, msg)
     switch (msg.type) {
       case 'reply': {
         console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
@@ -210,20 +216,28 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
       }
     }
   },
-  // onEvict: zombie spoke 被踢后尝试重启
-  (agentId: string) => {
-    const agentConfig = agentManager.getConfig().agents[agentId]
-    if (agentConfig?.autoStart && agentManager.isManaged(agentId)) {
-      console.log(`[hub] Auto-restarting evicted agent "${agentId}"`)
-      setTimeout(() => {
-        const result = agentManager.start(agentId)
-        if (!result.success) {
-          console.log(`[hub] Failed to restart "${agentId}": ${result.error}`)
-        }
-      }, 5000)
-    }
+  {
+    onEvict: (agentId: string) => {
+      ctx.emit('agent:evicted', agentId)
+      const agentConfig = agentManager.getConfig().agents[agentId]
+      if (agentConfig?.autoStart && agentManager.isManaged(agentId)) {
+        console.log(`[hub] Auto-restarting evicted agent "${agentId}"`)
+        setTimeout(() => {
+          const result = agentManager.start(agentId)
+          if (!result.success) {
+            console.log(`[hub] Failed to restart "${agentId}": ${result.error}`)
+          }
+        }, 5000)
+      }
+    },
+    onAgentOnline: (agentId: string) => ctx.emit('agent:online', agentId),
+    onAgentOffline: (agentId: string) => ctx.emit('agent:offline', agentId),
   },
   )
+
+  ctx = new HubContextImpl(socketServer, agentManager, router, config)
+  const pluginManager = new PluginManager()
+  // No plugins registered yet — will be added in later tasks
 
   // --- WeChat message handler ---
   weixin.setMessageHandler(async (msg) => {
@@ -325,6 +339,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
 
   // --- Start everything ---
   await socketServer.start()
+  await pluginManager.initAll(ctx)
   await weixin.login()
   weixin.startListening()
 
@@ -337,6 +352,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   const shutdown = async () => {
     console.log('[hub] Shutting down...')
     clearInterval(cleanupInterval)
+    await pluginManager.destroyAll()
     await agentManager.stopAll()
     socketServer.stop()
     process.exit(0)
@@ -345,6 +361,8 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   process.on('SIGINT', shutdown)
 
   await weixin.startPolling()
+
+  ctx.emit('hub:ready')
 }
 
 /** Build the text content forwarded to the spoke. Uses routedText (with @mention stripped). */
