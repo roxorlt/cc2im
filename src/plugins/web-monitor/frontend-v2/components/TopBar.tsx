@@ -21,27 +21,32 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
   )
 }
 
-function UsageBar({ label, utilization, resetsAt }: {
+function UsageRow({ label, utilization, resetsAt }: {
   label: string
   utilization: number
   resetsAt?: string
 }) {
   const pct = Math.round(utilization)
-  const resetStr = resetsAt
-    ? new Date(resetsAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : ''
   const filled = Math.round(pct / 20)
   const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(5 - filled)
   const color = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow, #f0ad4e)' : 'var(--text-dim)'
 
+  // "resets in Xh" or "resets in Xd"
+  let resetStr = ''
+  if (resetsAt) {
+    const diffMs = new Date(resetsAt).getTime() - Date.now()
+    if (diffMs > 0) {
+      const hrs = Math.round(diffMs / 3_600_000)
+      resetStr = hrs >= 24 ? `${Math.round(hrs / 24)}d` : `${hrs}h`
+    }
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 500 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color, letterSpacing: '0.05em' }}>{bar}</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color }}>{pct}%</span>
-        {resetStr && <span style={{ fontSize: 9, color: 'var(--text-muted)' }}>{'\u21bb'}{resetStr}</span>}
-      </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, fontFamily: 'var(--font-mono)' }}>
+      <span style={{ color: 'var(--text-muted)', width: 52, fontSize: 9, letterSpacing: '0.08em' }}>{label}</span>
+      <span style={{ color, letterSpacing: '0.03em' }}>{bar}</span>
+      <span style={{ color, fontWeight: 600, minWidth: 28, textAlign: 'right' }}>{pct}%</span>
+      {resetStr && <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>in {resetStr}</span>}
     </div>
   )
 }
@@ -106,31 +111,23 @@ export function TopBar({ tokenStats, usageStats, hubConnected }: {
 
       <Metric label="Context In" value={todayTokens ? formatNum(todayTokens.input) : '—'} sub={todayTokens ? `cache ${formatNum(todayTokens.cacheHit)}` : undefined} />
       <Metric label="Generated" value={todayTokens ? formatNum(todayTokens.output) : '—'} />
-      <Metric label="Today" value={todayTokens ? formatNum(todayTokens.total) : '—'} />
+      <Metric label="Today" value={todayTokens ? formatNum(todayTokens.total) : '—'} sub={formatCost(tokenStats.todayCost)} />
 
       <div style={{ flex: 1 }} />
 
-      {/* Cost + TPD compact block */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-        <span style={{ color: 'var(--text-dim)' }}>
-          {'\u2248'} <span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCost(tokenStats.todayCost)}</span> today
-          {' / '}
-          <span style={{ color: 'var(--text)', fontWeight: 600 }}>{formatCost(tokenStats.avgDailyCost)}</span> avg
-        </span>
-        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>
-          TPD {tpd ? formatNum(Math.round(tpd)) : '—'}
-        </span>
-      </div>
+      <Metric label="Tokens/Day (30d)" value={tpd ? formatNum(Math.round(tpd)) : '—'} sub={formatCost(tokenStats.avgDailyCost) + '/d'} />
 
       <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
 
-      {/* Usage limits */}
-      {usageStats?.fiveHour && (
-        <UsageBar label="5h Limit" utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} />
-      )}
-      {usageStats?.sevenDay && (
-        <UsageBar label="7d Limit" utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} />
-      )}
+      {/* Usage limits — stacked compact */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 120 }}>
+        {usageStats?.fiveHour && (
+          <UsageRow label="CURRENT" utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} />
+        )}
+        {usageStats?.sevenDay && (
+          <UsageRow label="WEEK" utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} />
+        )}
+      </div>
     </div>
   )
 }
