@@ -6,6 +6,9 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 
+const pricingPath = join(import.meta.dirname!, 'pricing.json')
+const pricing = JSON.parse(readFileSync(pricingPath, 'utf8'))
+
 const PROJECTS_DIR = join(homedir(), '.claude', 'projects')
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // Only read files modified in last 30 days
 
@@ -15,11 +18,15 @@ export interface DailyTokens {
   output: number      // output_tokens
   cacheRead: number   // cache_read_input_tokens
   cacheCreate: number // cache_creation_input_tokens
+  cost?: number
 }
 
 export interface TokenStats {
   daily: DailyTokens[]
   lastUpdated: string
+  todayCost?: number
+  avgDailyCost?: number
+  pricingDate?: string
 }
 
 let cachedStats: TokenStats | null = null
@@ -81,5 +88,23 @@ function computeTokenStats(): TokenStats {
   scanDir(PROJECTS_DIR)
 
   const sorted = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date))
-  return { daily: sorted, lastUpdated: new Date().toISOString() }
+
+  // Calculate cost per day using default Opus 4.6 pricing
+  const p = pricing.models['claude-opus-4-6']
+  for (const d of sorted) {
+    d.cost = (d.input * p.input + d.output * p.output + d.cacheRead * p.cacheRead + d.cacheCreate * p.cacheCreate) / 1_000_000
+  }
+
+  const today = new Date().toISOString().split('T')[0]
+  const todayData = sorted.find(d => d.date === today)
+  const last30 = sorted.slice(-30)
+  const totalCost = last30.reduce((s, d) => s + (d.cost || 0), 0)
+
+  return {
+    daily: sorted,
+    lastUpdated: new Date().toISOString(),
+    todayCost: todayData?.cost,
+    avgDailyCost: last30.length > 0 ? totalCost / last30.length : undefined,
+    pricingDate: pricing.lastChecked,
+  }
 }

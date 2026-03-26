@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { MonitorClient } from './monitor-client.js'
 import { getTokenStats } from './token-stats.js'
+import { getUsageStats } from './usage-stats.js'
 import { readStats } from './stats-reader.js'
 import { LogTailer } from './log-tailer.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
@@ -133,6 +134,12 @@ export async function startWeb(options: { port: number }) {
     if (url.pathname === '/api/tokens') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(getTokenStats()))
+      return
+    }
+
+    if (url.pathname === '/api/usage') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(getUsageStats()))
       return
     }
 

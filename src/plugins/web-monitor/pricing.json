@@ -1,0 +1,24 @@
+{
+  "lastChecked": "2026-03-26",
+  "source": "https://docs.anthropic.com/en/docs/about-claude/models",
+  "models": {
+    "claude-opus-4-6": {
+      "input": 5,
+      "output": 25,
+      "cacheRead": 0.5,
+      "cacheCreate": 6.25
+    },
+    "claude-sonnet-4-6": {
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheCreate": 3.75
+    },
+    "claude-haiku-4-5": {
+      "input": 1,
+      "output": 5,
+      "cacheRead": 0.1,
+      "cacheCreate": 1.25
+    }
+  }
+}
