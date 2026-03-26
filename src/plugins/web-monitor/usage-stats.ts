@@ -33,7 +33,7 @@ function fetchUsage(): UsageStats {
     }
 
     const res = execSync(
-      `curl -s -H "Authorization: Bearer ${claudeAiOauth.accessToken}" -H "anthropic-beta: oauth-2025-04-20" "https://api.anthropic.com/api/oauth/usage"`,
+      `curl -s -H "Authorization: Bearer ${claudeAiOauth.accessToken}" -H "anthropic-beta: oauth-2025-04-20" -H "User-Agent: claude-code/2.1.81" "https://api.anthropic.com/api/oauth/usage"`,
       { encoding: 'utf8', timeout: 10000 },
     )
     const data = JSON.parse(res)
