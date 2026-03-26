@@ -106,12 +106,13 @@ export class WeixinConnection {
 
       console.log(`[hub] 收到微信消息 from=${msg.userId} type=${msg.type}: ${msg.text?.slice(0, 100)}`)
 
-      // Cache for reply
+      // Cache for reply + persist context token to disk
       this.recentMessages.set(msg.userId, msg)
       if (this.recentMessages.size > 50) {
         const oldest = this.recentMessages.keys().next().value
         if (oldest) this.recentMessages.delete(oldest)
       }
+      this.saveContextCache()
 
       // Handle media
       let mediaPath: string | null = null
