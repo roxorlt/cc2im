@@ -5,7 +5,7 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-function MsgBubble({ entry, index }: { entry: MessageEntry; index: number }) {
+function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: number; animate?: boolean }) {
   const ev = entry.event
   const isOut = ev.kind === 'message_out'
   const isPerm = ev.kind === 'permission_request' || ev.kind === 'permission_verdict'
@@ -21,9 +21,7 @@ function MsgBubble({ entry, index }: { entry: MessageEntry; index: number }) {
         background: `${color}08`,
         fontSize: 11, color,
         display: 'flex', alignItems: 'center', gap: 6,
-        animation: 'fade-in 0.3s ease',
-        animationDelay: `${index * 30}ms`,
-        animationFillMode: 'backwards',
+        ...(animate ? { animation: 'fade-in 0.3s ease' } : {}),
       }}>
         <span>{icon}</span>
         <span>{ev.kind === 'permission_request' ? ev.toolName : `${ev.behavior}`}</span>
@@ -36,9 +34,9 @@ function MsgBubble({ entry, index }: { entry: MessageEntry; index: number }) {
     <div style={{
       alignSelf: isOut ? 'flex-end' : 'flex-start',
       maxWidth: '75%',
-      animation: isOut ? 'slide-in-right 0.25s ease' : 'slide-in-left 0.25s ease',
-      animationDelay: `${index * 30}ms`,
-      animationFillMode: 'backwards',
+      ...(animate ? {
+        animation: isOut ? 'slide-in-right 0.25s ease' : 'slide-in-left 0.25s ease',
+      } : {}),
     }}>
       <div style={{
         padding: '10px 14px',
@@ -65,10 +63,14 @@ function MsgBubble({ entry, index }: { entry: MessageEntry; index: number }) {
 
 export function MessageFlow({ messages, agentId }: { messages: MessageEntry[]; agentId: string }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const prevCountRef = useRef(0)
   const filtered = messages.filter(m => m.event.agentId === agentId)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // First load: jump instantly. New messages: smooth scroll.
+    const isInitial = prevCountRef.current === 0
+    bottomRef.current?.scrollIntoView({ behavior: isInitial ? 'instant' : 'smooth' })
+    prevCountRef.current = filtered.length
   }, [filtered.length])
 
   if (filtered.length === 0) {
@@ -90,7 +92,7 @@ export function MessageFlow({ messages, agentId }: { messages: MessageEntry[]; a
       padding: '16px 20px',
       display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      {filtered.map((m, i) => <MsgBubble key={i} entry={m} index={i} />)}
+      {filtered.map((m, i) => <MsgBubble key={i} entry={m} index={i} animate={i >= prevCountRef.current - 1} />)}
       <div ref={bottomRef} />
     </div>
   )
