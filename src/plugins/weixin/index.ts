@@ -87,15 +87,7 @@ export function createWeixinPlugin(): Cc2imPlugin {
           }
         }
 
-        // Check if agent is connected
-        const connected = ctx.getConnectedAgents()
-        if (!connected.includes(routed.agentId)) {
-          console.log(`[hub] Agent ${routed.agentId} not connected, dropping message`)
-          await weixin.send(userId, `⚠ Agent "${routed.agentId}" 不在线。在线: ${connected.join(', ') || '无'}`)
-          return
-        }
-
-        // Forward to spoke
+        // Forward to spoke — persistence plugin will queue if offline
         const text = buildMessageContent(incomingMsg, routed.text)
         console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
         ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString() })
@@ -108,7 +100,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
           timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
         })
         if (!sent) {
-          console.log(`[hub] ⚠ Failed to send to ${routed.agentId} (socket gone)`)
+          console.log(`[hub] Message queued for offline agent "${routed.agentId}"`)
+          await weixin.send(userId, `📬 ${routed.agentId} 暂时离线，消息已排队，上线后自动投递。`)
         }
       })
 
