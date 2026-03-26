@@ -11,6 +11,9 @@ export interface DailyTokens {
 export interface TokenStats {
   daily: DailyTokens[]
   lastUpdated: string
+  todayCost?: number
+  avgDailyCost?: number
+  pricingDate?: string
 }
 
 export function useTokens(intervalMs = 5000) {

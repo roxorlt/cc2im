@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useTokens } from './hooks/useTokens'
+import { useUsage } from './hooks/useUsage'
 import { TopBar } from './components/TopBar'
 import { AgentList } from './components/AgentList'
 import { MessageFlow } from './components/MessageFlow'
@@ -14,6 +15,7 @@ const tabs = [
 export function App() {
   const { agents, hubConnected, wsConnected, messages, logs } = useWebSocket()
   const tokenStats = useTokens()
+  const usageStats = useUsage()
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
 
@@ -21,7 +23,7 @@ export function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
-      <TopBar tokenStats={tokenStats} hubConnected={hubConnected} />
+      <TopBar tokenStats={tokenStats} usageStats={usageStats} hubConnected={hubConnected} />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <AgentList agents={agents} selected={activeAgent} onSelect={setSelected} />

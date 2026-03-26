@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  root: 'src/web/frontend',
+  root: 'src/plugins/web-monitor/frontend-v2',
   build: {
-    outDir: '../../../dist/web-frontend',
+    outDir: '../../../../dist/web-frontend',
     emptyDirOnStart: true,
   },
   server: {

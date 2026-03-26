@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { WebSocketServer, WebSocket } from 'ws'
 import { MonitorClient } from './monitor-client.js'
 import { getTokenStats } from './token-stats.js'
+import { getUsageStats } from './usage-stats.js'
 import { readStats } from './stats-reader.js'
 import { LogTailer } from './log-tailer.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
@@ -136,6 +137,12 @@ export async function startWeb(options: { port: number }) {
       return
     }
 
+    if (url.pathname === '/api/usage') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(getUsageStats()))
+      return
+    }
+
     if (url.pathname === '/api/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
@@ -158,14 +165,8 @@ export async function startWeb(options: { port: number }) {
 
     // Serve frontend static files
     const frontendDir = join(import.meta.dirname!, '..', '..', '..', 'dist', 'web-frontend')
-    const srcFrontendDir = join(import.meta.dirname!, '..', '..', 'web', 'frontend')
-
-    // Try built assets first, then source index.html as fallback
+    // Try built assets first
     let filePath = join(frontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
-    if (!existsSync(filePath) && existsSync(join(srcFrontendDir, 'index.html'))) {
-      // Dev mode: serve source index.html (use with Vite dev server proxy instead)
-      filePath = join(srcFrontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
-    }
     if (!existsSync(filePath)) {
       // SPA fallback: serve index.html for all routes
       filePath = join(frontendDir, 'index.html')
