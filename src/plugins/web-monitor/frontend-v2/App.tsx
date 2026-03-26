@@ -12,6 +12,20 @@ const tabs = [
   { id: 'logs' as const, label: '日志' },
 ]
 
+function UsagePill({ utilization, resetsAt }: { utilization: number; resetsAt?: string }) {
+  const pct = Math.round(utilization)
+  const color = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow, #f0ad4e)' : 'var(--text-dim)'
+  let resetStr = ''
+  if (resetsAt) {
+    const diffMs = new Date(resetsAt).getTime() - Date.now()
+    if (diffMs > 0) {
+      const hrs = Math.round(diffMs / 3_600_000)
+      resetStr = hrs >= 24 ? ` ${Math.round(hrs / 24)}d` : ` ${hrs}h`
+    }
+  }
+  return <span style={{ color, fontWeight: 600 }}>{pct}%<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{resetStr}</span></span>
+}
+
 export function App() {
   const { agents, hubConnected, wsConnected, messages, logs } = useWebSocket()
   const tokenStats = useTokens()
@@ -23,7 +37,7 @@ export function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
-      <TopBar tokenStats={tokenStats} usageStats={usageStats} hubConnected={hubConnected} />
+      <TopBar tokenStats={tokenStats} hubConnected={hubConnected} />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         <AgentList agents={agents} selected={activeAgent} onSelect={setSelected} />
@@ -81,16 +95,23 @@ export function App() {
         )}
       </div>
 
-      {/* Status bar */}
+      {/* Footer: version + usage + ws status */}
       <div style={{
-        display: 'flex', justifyContent: 'space-between',
+        display: 'flex', alignItems: 'center', gap: 16,
         padding: '4px 16px',
         fontSize: 9, color: 'var(--text-muted)',
         background: 'var(--bg-panel)',
         borderTop: '1px solid var(--border)',
+        fontFamily: 'var(--font-mono)',
       }}>
         <span>cc2im v0.1.0</span>
-        <span>
+        {usageStats?.fiveHour && (
+          <span>CURRENT <UsagePill utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} /></span>
+        )}
+        {usageStats?.sevenDay && (
+          <span>WEEK <UsagePill utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} /></span>
+        )}
+        <span style={{ marginLeft: 'auto' }}>
           <span style={{
             display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
             background: wsConnected ? 'var(--green)' : 'var(--red)',
