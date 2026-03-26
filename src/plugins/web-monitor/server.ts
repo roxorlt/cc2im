@@ -165,14 +165,8 @@ export async function startWeb(options: { port: number }) {
 
     // Serve frontend static files
     const frontendDir = join(import.meta.dirname!, '..', '..', '..', 'dist', 'web-frontend')
-    const srcFrontendDir = join(import.meta.dirname!, '..', '..', 'web', 'frontend')
-
-    // Try built assets first, then source index.html as fallback
+    // Try built assets first
     let filePath = join(frontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
-    if (!existsSync(filePath) && existsSync(join(srcFrontendDir, 'index.html'))) {
-      // Dev mode: serve source index.html (use with Vite dev server proxy instead)
-      filePath = join(srcFrontendDir, url.pathname === '/' ? 'index.html' : url.pathname)
-    }
     if (!existsSync(filePath)) {
       // SPA fallback: serve index.html for all routes
       filePath = join(frontendDir, 'index.html')
