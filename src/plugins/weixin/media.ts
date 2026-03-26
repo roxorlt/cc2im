@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, writeFileSync, readdirSync, statSync, unlinkSync
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { createDecipheriv } from 'node:crypto'
-import { SOCKET_DIR } from '../shared/socket.js'
+import { SOCKET_DIR } from '../../shared/socket.js'
 
 const MEDIA_DIR = join(SOCKET_DIR, 'media')
 const CDN_DOWNLOAD_URL = 'https://novac2c.cdn.weixin.qq.com/c2c/download'
