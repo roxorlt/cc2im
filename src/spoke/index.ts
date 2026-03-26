@@ -80,22 +80,28 @@ const permissionRelay = new PermissionRelay(agentId, server, socketClient, tools
 permissionRelay.setup()
 
 // --- Exit when CC disconnects ---
-// Method 1: stdin EOF (may be swallowed by MCP transport)
-process.stdin.on('end', () => {
-  console.log(`[spoke:${agentId}] CC disconnected (stdin EOF), exiting`)
+let exiting = false
+function gracefulExit(reason: string) {
+  if (exiting) return
+  exiting = true
+  console.log(`[spoke:${agentId}] ${reason}, exiting`)
   socketClient.disconnect()
   process.exit(0)
-})
+}
+
+// Method 1: stdin EOF / close
+process.stdin.on('end', () => gracefulExit('CC disconnected (stdin EOF)'))
+process.stdin.on('close', () => gracefulExit('CC disconnected (stdin close)'))
 process.stdin.resume()
 
-// Method 2: Poll parent PID — when CC dies, PPID becomes 1 (launchd/init)
-const originalPpid = process.ppid
+// Method 2: MCP transport close
+server.onclose = () => gracefulExit('MCP transport closed')
+
+// Method 3: Poll parent PID — when CC dies, PPID becomes 1 (launchd/init)
 const ppidCheck = setInterval(() => {
-  if (process.ppid !== originalPpid) {
-    console.log(`[spoke:${agentId}] Parent process gone (ppid ${originalPpid} → ${process.ppid}), exiting`)
+  if (process.ppid === 1) {
     clearInterval(ppidCheck)
-    socketClient.disconnect()
-    process.exit(0)
+    gracefulExit('Parent process gone (ppid became 1)')
   }
 }, 3000)
 

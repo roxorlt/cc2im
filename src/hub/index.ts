@@ -209,7 +209,21 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
         break
       }
     }
-  })
+  },
+  // onEvict: zombie spoke 被踢后尝试重启
+  (agentId: string) => {
+    const agentConfig = agentManager.getConfig().agents[agentId]
+    if (agentConfig?.autoStart && agentManager.isManaged(agentId)) {
+      console.log(`[hub] Auto-restarting evicted agent "${agentId}"`)
+      setTimeout(() => {
+        const result = agentManager.start(agentId)
+        if (!result.success) {
+          console.log(`[hub] Failed to restart "${agentId}": ${result.error}`)
+        }
+      }, 5000)
+    }
+  },
+  )
 
   // --- WeChat message handler ---
   weixin.setMessageHandler(async (msg) => {
