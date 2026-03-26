@@ -3,6 +3,7 @@
  * Owns: WeixinConnection, PermissionManager, user tracking, message routing.
  */
 
+import { basename } from 'node:path'
 import type { Cc2imPlugin, HubContext } from '../../shared/plugin.js'
 import { WeixinConnection } from './connection.js'
 import { PermissionManager } from './permission.js'
@@ -40,6 +41,29 @@ export function createWeixinPlugin(): Cc2imPlugin {
           }
           case 'permission_timeout': {
             permissionMgr.handleTimeout(msg.requestId)
+            break
+          }
+          case 'send_file': {
+            const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+            const ext = msg.filePath.split('.').pop()?.toLowerCase() || ''
+            const isImage = IMAGE_EXTS.has(ext)
+
+            try {
+              if (isImage) {
+                await weixin.sendImage(msg.userId, msg.filePath)
+              } else {
+                await weixin.sendFile(msg.userId, msg.filePath)
+              }
+              console.log(`[hub] File sent from ${agentId} to ${msg.userId}: ${msg.filePath}`)
+              ctx.broadcastMonitor({
+                kind: 'message_out', agentId, userId: msg.userId,
+                text: isImage ? '[图片]' : `[文件] ${msg.filePath.split('/').pop()}`,
+                timestamp: new Date().toISOString(),
+                msgType: isImage ? 'image' : 'file',
+              })
+            } catch (err: any) {
+              console.error(`[hub] Failed to send file from ${agentId}: ${err.message}`)
+            }
             break
           }
           // NOTE: 'management' type is handled by hub core, not by this plugin
@@ -90,7 +114,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
         // Forward to spoke — persistence plugin will queue if offline
         const text = buildMessageContent(incomingMsg, routed.text)
         console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
-        ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString() })
+        const mediaUrl = incomingMsg.mediaPath ? `/media/${basename(incomingMsg.mediaPath)}` : undefined
+        ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl })
         const sent = ctx.deliverToAgent(routed.agentId, {
           type: 'message',
           userId,

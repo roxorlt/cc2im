@@ -10,6 +10,7 @@ import {
   CallToolRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js'
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import type { SpokeSocketClient } from './socket-client.js'
 import type { HubToSpokeManagementResult } from '../shared/types.js'
 
@@ -107,6 +108,21 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
         },
       },
       {
+        name: 'weixin_send_file',
+        description: '发送图片或文件到微信用户。支持 jpg/png/gif/pdf 等格式。图片以图片消息显示，其他格式以文件消息显示。',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            file_path: { type: 'string', description: '本地文件的绝对路径' },
+            user_id: {
+              type: 'string',
+              description: '目标用户 ID — 从 channel notification 的 meta.userId 提取',
+            },
+          },
+          required: ['file_path'],
+        },
+      },
+      {
         name: 'agent_register',
         description: '注册一个新的 agent（CC 实例）',
         inputSchema: {
@@ -198,6 +214,44 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
 
         return {
           content: [{ type: 'text' as const, text: `已发送到微信用户 ${targetId}` }],
+        }
+      }
+
+      case 'weixin_send_file': {
+        const { file_path, user_id } = args as { file_path: string; user_id?: string }
+        const targetId = user_id || lastUserId
+
+        if (!targetId) {
+          return {
+            content: [{ type: 'text' as const, text: '没有可回复的用户，等待微信消息...' }],
+            isError: true,
+          }
+        }
+
+        // Validate file exists
+        if (!existsSync(file_path)) {
+          return {
+            content: [{ type: 'text' as const, text: `文件不存在: ${file_path}` }],
+            isError: true,
+          }
+        }
+
+        const sent = socketClient.send({
+          type: 'send_file',
+          agentId,
+          userId: targetId,
+          filePath: file_path,
+        })
+
+        if (!sent) {
+          return {
+            content: [{ type: 'text' as const, text: 'Hub 未连接，文件未送达。' }],
+            isError: true,
+          }
+        }
+
+        return {
+          content: [{ type: 'text' as const, text: `文件已发送到微信用户 ${targetId}: ${file_path}` }],
         }
       }
 
