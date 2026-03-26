@@ -1,4 +1,9 @@
 import { execSync } from 'node:child_process'
+import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { SOCKET_DIR } from '../../shared/socket.js'
+
+const USAGE_CACHE_PATH = join(SOCKET_DIR, 'usage-cache.json')
 
 export interface UsageStats {
   fiveHour?: { utilization: number; resetsAt: string }
@@ -7,9 +12,20 @@ export interface UsageStats {
   error?: string
 }
 
-let cachedUsage: UsageStats | null = null
+let cachedUsage: UsageStats | null = loadCachedUsage()
 let lastFetchTime = 0
 const CACHE_TTL_MS = 5 * 60_000 // 5 minutes — avoid rate limiting
+
+function loadCachedUsage(): UsageStats | null {
+  try {
+    if (!existsSync(USAGE_CACHE_PATH)) return null
+    return JSON.parse(readFileSync(USAGE_CACHE_PATH, 'utf8'))
+  } catch { return null }
+}
+
+function saveCachedUsage(stats: UsageStats) {
+  try { writeFileSync(USAGE_CACHE_PATH, JSON.stringify(stats) + '\n') } catch {}
+}
 
 export function getUsageStats(): UsageStats {
   const now = Date.now()
@@ -23,6 +39,7 @@ export function getUsageStats(): UsageStats {
     cachedUsage = { ...cachedUsage, lastUpdated: result.lastUpdated, error: result.error }
   } else {
     cachedUsage = result
+    if (!result.error) saveCachedUsage(result)
   }
   return cachedUsage
 }
