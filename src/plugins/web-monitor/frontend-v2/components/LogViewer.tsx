@@ -8,10 +8,13 @@ const sourceColors: Record<string, string> = {
 
 export function LogViewer({ logs, source }: { logs: Array<{ source: string; line: string; ts: string }>; source: string }) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const prevCountRef = useRef(0)
   const filtered = logs.filter(l => l.source === source || l.source === 'hub')
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const isInitial = prevCountRef.current === 0
+    bottomRef.current?.scrollIntoView({ behavior: isInitial ? 'instant' : 'smooth' })
+    prevCountRef.current = filtered.length
   }, [filtered.length])
 
   if (filtered.length === 0) {
@@ -40,7 +43,7 @@ export function LogViewer({ logs, source }: { logs: Array<{ source: string; line
             padding: '1px 16px',
             borderLeft: `2px solid ${sourceColors[l.source] || 'var(--border)'}`,
             marginLeft: 8,
-            animation: 'fade-in 0.2s ease',
+            ...(i >= prevCountRef.current - 1 ? { animation: 'fade-in 0.2s ease' } : {}),
           }}
           onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-card)'}
           onMouseLeave={e => e.currentTarget.style.background = ''}
