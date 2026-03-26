@@ -57,7 +57,7 @@ export class AgentManager {
       cwd,
       claudeArgs,
       createdAt: new Date().toISOString().split('T')[0],
-      autoStart: false,
+      autoStart: true,
     }
     this.saveConfig()
     console.log(`[agent-manager] Registered "${name}" → ${cwd}`)
