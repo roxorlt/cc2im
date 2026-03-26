@@ -11,6 +11,7 @@ import { AgentManager } from './agent-manager.js'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { HubContextImpl } from './hub-context.js'
 import { PluginManager } from './plugin-manager.js'
+import { createWebMonitorPlugin } from '../plugins/web-monitor/index.js'
 import type { AgentsConfig, SpokeToHub } from '../shared/types.js'
 
 // --- Config ---
@@ -237,7 +238,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
 
   ctx = new HubContextImpl(socketServer, agentManager, router, config)
   const pluginManager = new PluginManager()
-  // No plugins registered yet — will be added in later tasks
+  pluginManager.register(createWebMonitorPlugin())
 
   // --- WeChat message handler ---
   weixin.setMessageHandler(async (msg) => {
