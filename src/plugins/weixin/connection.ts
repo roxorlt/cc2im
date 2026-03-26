@@ -105,10 +105,17 @@ export class WeixinConnection {
     const cachedMsg = this.recentMessages.get(userId)
 
     for (let i = 0; i < chunks.length; i++) {
-      if (cachedMsg) {
-        await this.bot.reply(cachedMsg, chunks[i])
-      } else {
-        await this.bot.send(userId, chunks[i])
+      try {
+        if (cachedMsg) {
+          await this.bot.reply(cachedMsg, chunks[i])
+        } else {
+          await this.bot.send(userId, chunks[i])
+        }
+      } catch (err: any) {
+        // WeChat SDK needs a cached context token to send.
+        // After hub restart, cache is empty until user sends a new message.
+        console.error(`[weixin] Failed to send to ${userId}: ${err.message}`)
+        return
       }
       if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500))
     }
