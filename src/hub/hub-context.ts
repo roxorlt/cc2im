@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { randomUUID } from 'node:crypto'
 import type { HubSocketServer } from './socket-server.js'
 import type { AgentManager } from './agent-manager.js'
 import type { Router } from './router.js'
@@ -16,7 +17,11 @@ export class HubContextImpl extends EventEmitter implements HubContext {
   }
 
   deliverToAgent(agentId: string, msg: HubToSpoke): boolean {
-    return this.socketServer.send(agentId, msg)
+    const messageId = randomUUID()
+    this.emit('deliver:before', agentId, msg, messageId)
+    const ok = this.socketServer.send(agentId, msg)
+    this.emit('deliver:after', messageId, ok)
+    return ok
   }
 
   broadcastMonitor(event: HubEventData): void {

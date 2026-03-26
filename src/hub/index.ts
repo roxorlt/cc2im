@@ -9,6 +9,7 @@ import { Router } from './router.js'
 import { AgentManager } from './agent-manager.js'
 import { HubContextImpl } from './hub-context.js'
 import { PluginManager } from './plugin-manager.js'
+import { createPersistencePlugin } from '../plugins/persistence/index.js'
 import { createWeixinPlugin } from '../plugins/weixin/index.js'
 import { createWebMonitorPlugin } from '../plugins/web-monitor/index.js'
 import { SOCKET_DIR } from '../shared/socket.js'
@@ -69,6 +70,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
 
   ctx = new HubContextImpl(socketServer, agentManager, router, config)
   const pluginManager = new PluginManager()
+  pluginManager.register(createPersistencePlugin())
   pluginManager.register(createWeixinPlugin())
   pluginManager.register(createWebMonitorPlugin())
 

@@ -169,6 +169,18 @@ export class AgentManager {
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
       this.onEvent?.('agent_stopped', name, { code })
+
+      // Auto-restart if configured (covers normal exit, not just heartbeat eviction)
+      const agentConfig = this.config.agents[name]
+      if (agentConfig?.autoStart) {
+        console.log(`[agent-manager] Auto-restarting "${name}" (exited with code ${code})`)
+        setTimeout(() => {
+          const result = this.start(name)
+          if (!result.success) {
+            console.log(`[agent-manager] Failed to restart "${name}": ${result.error}`)
+          }
+        }, 5000)
+      }
     })
 
     this.processes.set(name, child)

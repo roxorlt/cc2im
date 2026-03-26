@@ -4,11 +4,12 @@
  */
 
 import { WeixinBot } from '@pinixai/weixin-bot'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { downloadMedia, cleanupMedia } from './media.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
+import { SOCKET_DIR } from '../../shared/socket.js'
 
 export type IncomingMessage = {
   userId: string
@@ -27,6 +28,8 @@ const ALLOWED_USERS = process.env.CC2IM_ALLOWED_USERS
   ? process.env.CC2IM_ALLOWED_USERS.split(',').map(s => s.trim())
   : []
 
+const CONTEXT_CACHE_PATH = join(SOCKET_DIR, 'weixin-context.json')
+
 export class WeixinConnection {
   private bot = new WeixinBot()
   private recentMessages = new Map<string, any>() // userId -> raw msg for reply
@@ -34,6 +37,41 @@ export class WeixinConnection {
 
   setMessageHandler(handler: OnMessageCallback) {
     this.onIncoming = handler
+  }
+
+  /** Persist context tokens to disk so replies work after hub restart */
+  saveContextCache() {
+    const cache: Record<string, { userId: string; _contextToken: string }> = {}
+    for (const [userId, msg] of this.recentMessages) {
+      if (msg._contextToken) {
+        cache[userId] = { userId, _contextToken: msg._contextToken }
+      }
+    }
+    try {
+      writeFileSync(CONTEXT_CACHE_PATH, JSON.stringify(cache) + '\n')
+      console.log(`[weixin] Saved context cache (${Object.keys(cache).length} users)`)
+    } catch {}
+  }
+
+  /** Restore context tokens from disk. Call after login, before startListening. */
+  restoreContextCache() {
+    try {
+      if (!existsSync(CONTEXT_CACHE_PATH)) return
+      const cache = JSON.parse(readFileSync(CONTEXT_CACHE_PATH, 'utf8'))
+      let restored = 0
+      for (const [userId, entry] of Object.entries(cache) as [string, any][]) {
+        if (entry._contextToken) {
+          // Restore minimal msg object with _contextToken for bot.reply()
+          this.recentMessages.set(userId, { userId, _contextToken: entry._contextToken })
+          // Also restore into SDK's internal contextTokens map
+          ;(this.bot as any).contextTokens?.set(userId, entry._contextToken)
+          restored++
+        }
+      }
+      if (restored > 0) {
+        console.log(`[weixin] Restored context cache (${restored} users)`)
+      }
+    } catch {}
   }
 
   async login(): Promise<string> {
@@ -68,12 +106,13 @@ export class WeixinConnection {
 
       console.log(`[hub] 收到微信消息 from=${msg.userId} type=${msg.type}: ${msg.text?.slice(0, 100)}`)
 
-      // Cache for reply
+      // Cache for reply + persist context token to disk
       this.recentMessages.set(msg.userId, msg)
       if (this.recentMessages.size > 50) {
         const oldest = this.recentMessages.keys().next().value
         if (oldest) this.recentMessages.delete(oldest)
       }
+      this.saveContextCache()
 
       // Handle media
       let mediaPath: string | null = null
@@ -105,10 +144,17 @@ export class WeixinConnection {
     const cachedMsg = this.recentMessages.get(userId)
 
     for (let i = 0; i < chunks.length; i++) {
-      if (cachedMsg) {
-        await this.bot.reply(cachedMsg, chunks[i])
-      } else {
-        await this.bot.send(userId, chunks[i])
+      try {
+        if (cachedMsg) {
+          await this.bot.reply(cachedMsg, chunks[i])
+        } else {
+          await this.bot.send(userId, chunks[i])
+        }
+      } catch (err: any) {
+        // WeChat SDK needs a cached context token to send.
+        // After hub restart, cache is empty until user sends a new message.
+        console.error(`[weixin] Failed to send to ${userId}: ${err.message}`)
+        return
       }
       if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500))
     }
