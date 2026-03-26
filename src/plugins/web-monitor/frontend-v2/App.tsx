@@ -12,18 +12,30 @@ const tabs = [
   { id: 'logs' as const, label: '日志' },
 ]
 
-function UsagePill({ utilization, resetsAt }: { utilization: number; resetsAt?: string }) {
+function UsageBar({ label, utilization, resetsAt }: { label: string; utilization: number; resetsAt?: string }) {
   const pct = Math.round(utilization)
+  const filled = Math.round(pct / 20)
+  const bar = '\u2588'.repeat(filled) + '\u2591'.repeat(5 - filled)
   const color = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow, #f0ad4e)' : 'var(--text-dim)'
   let resetStr = ''
   if (resetsAt) {
     const diffMs = new Date(resetsAt).getTime() - Date.now()
     if (diffMs > 0) {
-      const hrs = Math.round(diffMs / 3_600_000)
-      resetStr = hrs >= 24 ? ` ${Math.round(hrs / 24)}d` : ` ${hrs}h`
+      const totalMin = Math.floor(diffMs / 60_000)
+      const d = Math.floor(totalMin / 1440)
+      const h = Math.floor((totalMin % 1440) / 60)
+      const m = totalMin % 60
+      resetStr = d > 0 ? `${d}d ${String(h).padStart(2, '0')}h` : `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
     }
   }
-  return <span style={{ color, fontWeight: 600 }}>{pct}%<span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>{resetStr}</span></span>
+  return (
+    <span>
+      {label}{' '}
+      <span style={{ color, letterSpacing: '0.03em' }}>{bar}</span>{' '}
+      <span style={{ color, fontWeight: 600 }}>{pct}%</span>{' '}
+      <span style={{ color: 'var(--text-muted)' }}>{resetStr}</span>
+    </span>
+  )
 }
 
 export function App() {
@@ -105,12 +117,12 @@ export function App() {
         fontFamily: 'var(--font-mono)',
       }}>
         <span>cc2im v0.1.0</span>
-        {usageStats?.fiveHour && (
-          <span>CURRENT <UsagePill utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} /></span>
-        )}
-        {usageStats?.sevenDay && (
-          <span>WEEK <UsagePill utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} /></span>
-        )}
+        {(usageStats?.fiveHour || usageStats?.sevenDay) && <>
+          <span style={{ width: 1, height: 10, background: 'var(--border)', flexShrink: 0 }} />
+          <span style={{ letterSpacing: '0.08em', color: 'var(--text-dim)' }}>USAGE</span>
+          {usageStats?.fiveHour && <UsageBar label="CURRENT" utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} />}
+          {usageStats?.sevenDay && <UsageBar label="WEEK" utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} />}
+        </>}
         <span style={{ marginLeft: 'auto' }}>
           <span style={{
             display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
