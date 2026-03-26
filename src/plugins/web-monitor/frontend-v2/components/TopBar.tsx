@@ -9,13 +9,24 @@ function formatNum(n: number): string {
   return n.toString()
 }
 
-function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
+// Responsive breakpoints: hide low-priority elements on narrow screens
+const responsiveStyle = `
+  @media (max-width: 1100px) {
+    .topbar-hide-narrow { display: none !important; }
+  }
+  @media (max-width: 900px) {
+    .topbar-hide-medium { display: none !important; }
+  }
+`
+
+function Metric({ label, value, sub, priority }: { label: string; value: string; sub?: string; priority?: 'high' | 'medium' | 'low' }) {
+  const hideClass = priority === 'low' ? 'topbar-hide-narrow' : priority === 'medium' ? 'topbar-hide-medium' : ''
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div className={hideClass} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 500 }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
         <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--text)', letterSpacing: '-0.02em' }}>{value}</span>
-        {sub && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{sub}</span>}
+        {sub && <span className="topbar-hide-narrow" style={{ fontSize: 10, color: 'var(--text-muted)' }}>{sub}</span>}
       </div>
     </div>
   )
@@ -90,7 +101,10 @@ export function TopBar({ tokenStats, usageStats, hubConnected }: {
       padding: '14px 24px',
       background: 'var(--bg-panel)',
       borderBottom: '1px solid var(--border)',
+      flexWrap: 'nowrap',
+      overflow: 'hidden',
     }}>
+      <style dangerouslySetInnerHTML={{ __html: responsiveStyle }} />
       {/* Logo + status */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 8 }}>
         <div style={{
@@ -110,12 +124,12 @@ export function TopBar({ tokenStats, usageStats, hubConnected }: {
       <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
 
       <Metric label="Context In" value={todayTokens ? formatNum(todayTokens.input) : '—'} sub={todayTokens ? `cache ${formatNum(todayTokens.cacheHit)}` : undefined} />
-      <Metric label="Generated" value={todayTokens ? formatNum(todayTokens.output) : '—'} />
+      <Metric label="Generated" value={todayTokens ? formatNum(todayTokens.output) : '—'} priority="low" />
       <Metric label="Today" value={todayTokens ? formatNum(todayTokens.total) : '—'} sub={formatCost(tokenStats.todayCost)} />
 
       <div style={{ flex: 1 }} />
 
-      <Metric label="Tokens/Day (30d)" value={tpd ? formatNum(Math.round(tpd)) : '—'} sub={formatCost(tokenStats.avgDailyCost) + '/d'} />
+      <Metric label="Tokens/Day (30d)" value={tpd ? formatNum(Math.round(tpd)) : '—'} sub={formatCost(tokenStats.avgDailyCost) + '/d'} priority="medium" />
 
       <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
 
