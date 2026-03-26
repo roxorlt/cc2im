@@ -176,6 +176,7 @@ export async function uploadMedia(
     cdnMedia: {
       encrypt_query_param: encryptQueryParam,
       aes_key: aesKeyToBase64(aesKeyHex),
+      encrypt_type: 1,
     },
     rawSize: plain.length,
   }
