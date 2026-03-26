@@ -6,17 +6,15 @@ const REPLAY_DELAY_MS = 500
 const CLEANUP_INTERVAL = 60 * 60 * 1000
 
 /**
- * Replay pending messages for an agent. Called by weixin plugin
- * when a user sends a new message (which guarantees a valid WeChat
- * context token for replies).
+ * Replay pending messages for an agent. Safe to call multiple times —
+ * only replays messages not yet marked as delivered.
  */
-export async function replayPending(ctx: HubContext, agentId: string): Promise<number> {
+async function doReplay(ctx: HubContext, agentId: string): Promise<number> {
   const pending = getPending(agentId)
   if (pending.length === 0) return 0
 
   console.log(`[persistence] Replaying ${pending.length} queued message(s) to "${agentId}"`)
 
-  // Heads-up to CC
   ctx.deliverToAgent(agentId, {
     type: 'message',
     userId: 'system',
@@ -78,8 +76,11 @@ export function createPersistencePlugin(): Cc2imPlugin {
         }
       })
 
-      // No replay on agent:online — replay is triggered by weixin plugin
-      // when user sends a new message (guaranteeing valid context token)
+      // Primary replay: when agent comes online
+      // Works when WeChat context tokens are restored from cache
+      ctx.on('agent:online', (agentId: string) => {
+        doReplay(ctx, agentId).catch(() => {})
+      })
 
       // Periodic cleanup
       cleanupTimer = setInterval(() => {
