@@ -108,8 +108,9 @@ export function createWeixinPlugin(): Cc2imPlugin {
       // Permission cleanup
       cleanupInterval = setInterval(() => permissionMgr.cleanup(), 60_000)
 
-      // Login and start listening
+      // Login, restore context cache, start listening
       await weixin.login()
+      weixin.restoreContextCache()
       weixin.startListening()
       // startPolling() is a long-poll loop that never returns — fire and forget
       weixin.startPolling().catch((err: any) => {
@@ -119,6 +120,7 @@ export function createWeixinPlugin(): Cc2imPlugin {
 
     async destroy() {
       if (cleanupInterval) clearInterval(cleanupInterval)
+      weixin.saveContextCache()
     },
   }
 }
