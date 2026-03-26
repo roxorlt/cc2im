@@ -32,8 +32,8 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
     <span>
       {label}{' '}
       <span style={{ color, letterSpacing: '0.03em' }}>{bar}</span>{' '}
-      <span style={{ color, fontWeight: 600 }}>{pct}%</span>{' '}
-      <span style={{ color: 'var(--text-muted)' }}>{resetStr}</span>
+      <span style={{ color, fontWeight: 700 }}>{pct}%</span>{' '}
+      <span style={{ color: 'var(--text-dim)' }}>{resetStr}</span>
     </span>
   )
 }

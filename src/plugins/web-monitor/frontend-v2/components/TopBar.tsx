@@ -18,7 +18,7 @@ function Metric({ label, value, sub }: { label: string; value: string; sub?: str
     <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
       <span style={{ fontSize: 9, color: 'var(--text-dim)', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 500 }}>{label}</span>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--text)', letterSpacing: '-0.02em' }}>{value}</span>
+        <span style={{ fontSize: 20, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text)', letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>{value}</span>
         {sub && <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{sub}</span>}
       </div>
     </div>
