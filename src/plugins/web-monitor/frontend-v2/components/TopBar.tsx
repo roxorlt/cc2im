@@ -108,7 +108,7 @@ export function TopBar({ tokenStats, usageStats, hubConnected }: {
       {/* Logo + status */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginRight: 8 }}>
         <div style={{
-          width: 10, height: 10, borderRadius: '50%',
+          width: 10, height: 10, minWidth: 10, borderRadius: '50%',
           background: hubConnected ? 'var(--green)' : 'var(--red)',
           animation: hubConnected ? 'pulse-green 2s ease-in-out infinite' : 'none',
         }} />
