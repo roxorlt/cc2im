@@ -13,7 +13,8 @@ const CACHE_TTL_MS = 5 * 60_000 // 5 minutes — avoid rate limiting
 
 export function getUsageStats(): UsageStats {
   const now = Date.now()
-  if (cachedUsage && now - lastFetchTime < CACHE_TTL_MS) {
+  // Don't cache errors — retry on next request
+  if (cachedUsage && !cachedUsage.error && now - lastFetchTime < CACHE_TTL_MS) {
     return cachedUsage
   }
   cachedUsage = fetchUsage()
