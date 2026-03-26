@@ -6,6 +6,7 @@
 import type { Cc2imPlugin, HubContext } from '../../shared/plugin.js'
 import { WeixinConnection } from './connection.js'
 import { PermissionManager } from './permission.js'
+import { replayPending } from '../persistence/index.js'
 
 export function createWeixinPlugin(): Cc2imPlugin {
   let weixin: WeixinConnection
@@ -99,7 +100,12 @@ export function createWeixinPlugin(): Cc2imPlugin {
           mediaPath: incomingMsg.mediaPath ?? undefined,
           timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
         })
-        if (!sent) {
+        if (sent) {
+          // New message delivered — replay any queued messages for this agent.
+          // Triggered here (not on agent:online) because a fresh user message
+          // guarantees a valid WeChat context token for replies.
+          replayPending(ctx, routed.agentId).catch(() => {})
+        } else {
           console.log(`[hub] Message queued for offline agent "${routed.agentId}"`)
           await weixin.send(userId, `📬 ${routed.agentId} 暂时离线，消息已排队，上线后自动投递。`)
         }
@@ -108,9 +114,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
       // Permission cleanup
       cleanupInterval = setInterval(() => permissionMgr.cleanup(), 60_000)
 
-      // Login, restore context cache, start listening
+      // Login and start listening
       await weixin.login()
-      weixin.restoreContextCache()
       weixin.startListening()
       // startPolling() is a long-poll loop that never returns — fire and forget
       weixin.startPolling().catch((err: any) => {
@@ -120,7 +125,6 @@ export function createWeixinPlugin(): Cc2imPlugin {
 
     async destroy() {
       if (cleanupInterval) clearInterval(cleanupInterval)
-      weixin.saveContextCache()
     },
   }
 }

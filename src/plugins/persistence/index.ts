@@ -5,10 +5,46 @@ import type { HubToSpokeMessage } from '../../shared/types.js'
 const REPLAY_DELAY_MS = 500
 const CLEANUP_INTERVAL = 60 * 60 * 1000
 
+/**
+ * Replay pending messages for an agent. Called by weixin plugin
+ * when a user sends a new message (which guarantees a valid WeChat
+ * context token for replies).
+ */
+export async function replayPending(ctx: HubContext, agentId: string): Promise<number> {
+  const pending = getPending(agentId)
+  if (pending.length === 0) return 0
+
+  console.log(`[persistence] Replaying ${pending.length} queued message(s) to "${agentId}"`)
+
+  // Heads-up to CC
+  ctx.deliverToAgent(agentId, {
+    type: 'message',
+    userId: 'system',
+    text: `[系统] 你离线期间收到 ${pending.length} 条消息，正在回放：`,
+    msgType: 'text',
+    timestamp: new Date().toISOString(),
+  })
+
+  for (const msg of pending) {
+    await new Promise(r => setTimeout(r, REPLAY_DELAY_MS))
+    const ok = ctx.deliverToAgent(agentId, {
+      type: 'message',
+      userId: msg.userId,
+      text: msg.text,
+      msgType: msg.msgType,
+      mediaPath: msg.mediaPath ?? undefined,
+      timestamp: msg.createdAt,
+    })
+    if (ok) markDelivered(msg.id)
+  }
+
+  console.log(`[persistence] Replay complete for "${agentId}"`)
+  return pending.length
+}
+
 export function createPersistencePlugin(): Cc2imPlugin {
   let cleanupTimer: ReturnType<typeof setInterval>
   const pendingDeliveries = new Map<string, { agentId: string; messageId: string }>()
-  let replaying = false  // flag to skip storing replay messages
 
   return {
     name: 'persistence',
@@ -16,17 +52,16 @@ export function createPersistencePlugin(): Cc2imPlugin {
       openDb()
       console.log('[persistence] SQLite opened')
 
-      // Store inbound messages before delivery
+      // Store inbound messages before delivery (skip system messages)
       ctx.on('deliver:before', (agentId: string, msg: any, deliveryId: string) => {
         if (msg.type !== 'message') return
-        if (replaying) return  // don't re-store replayed messages
-        if (msg.userId === 'system') return  // don't store system messages
+        if (msg.userId === 'system') return
         const m = msg as HubToSpokeMessage
         const dbId = storeInbound(agentId, m.userId, m.text, m.msgType, m.mediaPath)
         pendingDeliveries.set(deliveryId, { agentId, messageId: dbId })
       })
 
-      // Mark delivered after successful send
+      // Mark delivered after successful socket send
       ctx.on('deliver:after', (deliveryId: string, delivered: boolean) => {
         const entry = pendingDeliveries.get(deliveryId)
         if (!entry) return
@@ -43,39 +78,8 @@ export function createPersistencePlugin(): Cc2imPlugin {
         }
       })
 
-      // Replay pending messages when agent comes online
-      ctx.on('agent:online', async (agentId: string) => {
-        const pending = getPending(agentId)
-        if (pending.length === 0) return
-
-        console.log(`[persistence] Replaying ${pending.length} queued message(s) to "${agentId}"`)
-
-        // Send a heads-up first
-        replaying = true
-        ctx.deliverToAgent(agentId, {
-          type: 'message',
-          userId: 'system',
-          text: `[系统] 你离线期间收到 ${pending.length} 条消息，正在回放：`,
-          msgType: 'text',
-          timestamp: new Date().toISOString(),
-        })
-
-        for (const msg of pending) {
-          await new Promise(r => setTimeout(r, REPLAY_DELAY_MS))
-          const ok = ctx.deliverToAgent(agentId, {
-            type: 'message',
-            userId: msg.userId,
-            text: msg.text,
-            msgType: msg.msgType,
-            mediaPath: msg.mediaPath ?? undefined,
-            timestamp: msg.createdAt,
-          })
-          if (ok) markDelivered(msg.id)
-        }
-        replaying = false
-
-        console.log(`[persistence] Replay complete for "${agentId}"`)
-      })
+      // No replay on agent:online — replay is triggered by weixin plugin
+      // when user sends a new message (guaranteeing valid context token)
 
       // Periodic cleanup
       cleanupTimer = setInterval(() => {
@@ -85,7 +89,7 @@ export function createPersistencePlugin(): Cc2imPlugin {
         }
       }, CLEANUP_INTERVAL)
 
-      cleanup()  // Run once on startup
+      cleanup()
     },
 
     destroy() {
