@@ -32,21 +32,28 @@
 
 ## 待讨论 / 待规划
 
-### 1. Hub 层定时任务调度
+### 1. 定时任务投递目标（deliverTo）
 
-**背景**：CC 的 CronCreate 是进程内调度器，CC 重启后定时任务全丢。用户通过微信设的定时任务（如「每天 11:35 重启雪球服务」）无法在 agent 重启后幸存。
+**背景**：当前 cron 消息只发给 agent，不指定回复目标。agent 收到后不知道该回复到哪个 channel 的哪个用户。
 
-**方案（方案 B：Hub 自己调度）**：
-- Hub 内置调度器，定时任务存 SQLite（与消息持久化共用）
-- 新增 MCP 工具 `cron_create` / `cron_list` / `cron_delete`
-- 到点时 hub 给目标 agent 发 channel notification，CC 当普通消息处理
-- 如果 agent 离线，消息进离线队列（依赖 #1 消息持久化）
+**调研结论**（2026-03-27）：
+- **OpenClaw**：显式 `delivery.mode/channel/to` 三字段，但不支持单任务多目标（需创建多个 job），默认 "last channel" 容易发错
+- **NanoClaw**：隐式 `chat_jid` 绑定来源群组，简单但不灵活
+- 两者都不支持单任务多目标投递
 
-**核心抽象**：定时任务 = 在指定时间给指定 agent 发一条消息
+**cc2im 方案**：
+- CronJob 新增 `deliverTo?: Array<{ channelId: string; userId: string }>` 字段
+- **不填** → 消息只发到 agent，不指定回复目标（agent 自行决定）
+- **填了** → cron 触发时消息 meta 带 deliverTo 列表，agent 可逐个回复
+- GUI 表单：channel 下拉（多选，从已连接 channels 选）+ user 下拉（多选，显示昵称），两者均非必填
 
-**依赖**：#1 消息持久化 + SQLite
+**改动点**：
+- `types.ts` — CronJob 增 deliverTo 字段
+- `db.ts` — 存为 JSON 字符串
+- `scheduler.ts` — fire() 时在消息 meta 中带 deliverTo
+- `server.ts` + GUI 表单 — channel/user 多选组件
 
-**来源**：2026-03-26 zombie-spoke 修复后讨论
+**来源**：2026-03-27 cron GUI 测试讨论
 
 ---
 

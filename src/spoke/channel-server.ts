@@ -56,7 +56,7 @@ export function handleManagementResult(msg: HubToSpokeManagementResult) {
 function sendManagement(
   socketClient: SpokeSocketClient,
   agentId: string,
-  action: 'register' | 'deregister' | 'start' | 'stop' | 'list',
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update',
   params?: Record<string, any>,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   return new Promise((resolve) => {
@@ -179,6 +179,43 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
         inputSchema: {
           type: 'object' as const,
           properties: {},
+        },
+      },
+      {
+        name: 'hub_cron_create',
+        description: '创建持久化定时任务（hub 管理，重启不丢失）。到点给指定 agent 发一条消息。',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: '任务名称（如"每日晨报"）' },
+            agent_id: { type: 'string', description: '目标 agent 名称（默认自己）' },
+            schedule_type: { type: 'string', enum: ['cron', 'once', 'interval'], description: 'cron=重复(cron表达式) | once=一次性(ISO时间戳) | interval=固定间隔(毫秒)' },
+            schedule_value: { type: 'string', description: 'cron: "0 9 * * *" | once: "2026-04-01T09:00:00+08:00" | interval: "3600000"' },
+            timezone: { type: 'string', description: 'IANA 时区（默认 Asia/Shanghai）' },
+            message: { type: 'string', description: '到点发给 agent 的消息内容' },
+          },
+          required: ['name', 'schedule_type', 'schedule_value', 'message'],
+        },
+      },
+      {
+        name: 'hub_cron_list',
+        description: '列出持久化定时任务（可按 agent 筛选）',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            agent_id: { type: 'string', description: '按 agent 筛选（不填则列出所有）' },
+          },
+        },
+      },
+      {
+        name: 'hub_cron_delete',
+        description: '删除一个持久化定时任务',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            job_id: { type: 'string', description: '任务 ID' },
+          },
+          required: ['job_id'],
         },
       },
     ],
@@ -326,6 +363,56 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
         )
         return {
           content: [{ type: 'text' as const, text: lines.join('\n') }],
+        }
+      }
+
+      case 'hub_cron_create': {
+        const { name: jobName, agent_id, schedule_type, schedule_value, timezone, message } = args as any
+        const result = await sendManagement(socketClient, agentId, 'cron_create', {
+          name: jobName, agentId: agent_id, scheduleType: schedule_type,
+          scheduleValue: schedule_value, timezone, message,
+        })
+        if (!result.success) {
+          return { content: [{ type: 'text' as const, text: `创建失败: ${result.error}` }], isError: true }
+        }
+        const job = result.data
+        return {
+          content: [{ type: 'text' as const, text:
+            `✅ 定时任务已创建\n` +
+            `ID: ${job.id}\n` +
+            `名称: ${job.name}\n` +
+            `目标: ${job.agentId}\n` +
+            `调度: ${job.scheduleType} "${job.scheduleValue}"\n` +
+            `下次执行: ${job.nextRun}\n` +
+            `消息: ${job.message}`
+          }],
+        }
+      }
+
+      case 'hub_cron_list': {
+        const { agent_id } = args as any
+        const result = await sendManagement(socketClient, agentId, 'cron_list', { agentId: agent_id })
+        if (!result.success) {
+          return { content: [{ type: 'text' as const, text: `查询失败: ${result.error}` }], isError: true }
+        }
+        const jobs = result.data as any[]
+        if (jobs.length === 0) {
+          return { content: [{ type: 'text' as const, text: '没有定时任务' }] }
+        }
+        const lines = jobs.map((j: any) => {
+          const status = j.enabled ? '🟢' : '⏸️'
+          const runs = j.recentRuns?.length ? ` (最近: ${j.recentRuns[0].status} @ ${j.recentRuns[0].firedAt})` : ''
+          return `${status} ${j.name} [${j.scheduleType}: ${j.scheduleValue}] → ${j.agentId}\n   下次: ${j.nextRun || '无'}${runs}\n   ID: ${j.id}`
+        })
+        return { content: [{ type: 'text' as const, text: lines.join('\n\n') }] }
+      }
+
+      case 'hub_cron_delete': {
+        const { job_id } = args as any
+        const result = await sendManagement(socketClient, agentId, 'cron_delete', { jobId: job_id })
+        return {
+          content: [{ type: 'text' as const, text: result.success ? '✅ 定时任务已删除' : `删除失败: ${result.error}` }],
+          isError: !result.success,
         }
       }
 

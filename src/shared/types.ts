@@ -72,11 +72,19 @@ export interface SpokeToHubManagement {
   type: 'management'
   agentId: string
   requestId: string
-  action: 'register' | 'deregister' | 'start' | 'stop' | 'list'
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update'
   params?: {
     name?: string
     cwd?: string
     claudeArgs?: string[]
+    // cron fields
+    scheduleType?: 'cron' | 'once' | 'interval'
+    scheduleValue?: string
+    timezone?: string
+    agentId?: string
+    message?: string
+    jobId?: string
+    enabled?: boolean
   }
 }
 
@@ -116,7 +124,7 @@ export interface MonitorRegister {
 export interface HubEventData {
   kind: 'agent_online' | 'agent_offline' | 'message_in' | 'message_out'
     | 'permission_request' | 'permission_verdict' | 'agent_started' | 'agent_stopped'
-    | 'config_changed' | 'channel_status'
+    | 'config_changed' | 'channel_status' | 'cron_fired'
   agentId: string
   timestamp: string
   userId?: string
@@ -140,4 +148,28 @@ export interface AgentsConfig {
   defaultAgent: string   // 无 @前缀时路由到的 agent
   agents: Record<string, AgentConfig>
   channelDefaults?: Record<string, string>  // channelId → defaultAgent
+}
+
+// --- Cron Scheduler 类型 ---
+
+export interface CronJob {
+  id: string
+  name: string
+  agentId: string
+  scheduleType: 'cron' | 'once' | 'interval'
+  scheduleValue: string   // cron 表达式 | ISO 时间戳 | 毫秒数
+  timezone: string         // IANA 时区，默认系统时区
+  message: string          // 发给 agent 的消息内容
+  enabled: boolean
+  nextRun: string | null   // ISO 时间戳
+  createdAt: string
+  createdBy: string        // 'dashboard' | agent 名
+}
+
+export interface CronRun {
+  id: string
+  jobId: string
+  firedAt: string
+  status: 'delivered' | 'queued' | 'failed'
+  detail?: string
 }

@@ -7,8 +7,9 @@ import { Sidebar } from './components/Sidebar'
 import { MessageFlow } from './components/MessageFlow'
 import { LogViewer } from './components/LogViewer'
 import { ChannelsPage } from './components/ChannelsPage'
+import { ScheduledTasksPage } from './components/ScheduledTasksPage'
 
-type Page = 'chat' | 'channels'
+type Page = 'chat' | 'channels' | 'tasks'
 
 const tabs = [
   { id: 'messages' as const, label: '消息流' },
@@ -42,7 +43,7 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
 
@@ -54,10 +55,19 @@ export function App() {
     } catch {}
   }
 
+  const refreshCronJobs = async () => {
+    try {
+      const res = await fetch('/api/cron-jobs')
+      const list = await res.json()
+      setCronJobs(list)
+    } catch {}
+  }
+
   const [page, setPage] = useState<Page>('chat')
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
   const [showAddChannel, setShowAddChannel] = useState(false)
+  const [showAddTask, setShowAddTask] = useState(false)
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const handleSetNickname = async (channelId: string, userId: string, nickname: string) => {
@@ -89,6 +99,8 @@ export function App() {
           agents={agents} selectedAgent={activeAgent} onSelectAgent={setSelected}
           channels={channels}
           onAddChannel={() => { setPage('channels'); setShowAddChannel(true) }}
+          cronJobs={cronJobs}
+          onAddTask={() => { setPage('tasks'); setShowAddTask(true) }}
         />
 
         {page === 'chat' ? (
@@ -166,12 +178,20 @@ export function App() {
               <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>选择 Agent</span>
             </div>
           )
-        ) : (
+        ) : page === 'channels' ? (
           <ChannelsPage
             channels={channels}
             showAddDialog={showAddChannel}
             onCloseAddDialog={() => setShowAddChannel(false)}
             onRefreshChannels={refreshChannels}
+          />
+        ) : (
+          <ScheduledTasksPage
+            cronJobs={cronJobs}
+            agents={agents}
+            showAddDialog={showAddTask}
+            onCloseAddDialog={() => setShowAddTask(false)}
+            onRefreshJobs={refreshCronJobs}
           />
         )}
       </div>

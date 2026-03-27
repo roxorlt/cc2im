@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
-import type { AgentStatus, ChannelInfo } from '../hooks/useWebSocket'
+import type { AgentStatus, ChannelInfo, CronJobInfo } from '../hooks/useWebSocket'
 
-type Page = 'chat' | 'channels'
+type Page = 'chat' | 'channels' | 'tasks'
 
 interface SidebarProps {
   page: Page
@@ -11,11 +11,14 @@ interface SidebarProps {
   onSelectAgent: (name: string) => void
   channels: ChannelInfo[]
   onAddChannel: () => void
+  cronJobs: CronJobInfo[]
+  onAddTask: () => void
 }
 
 export function Sidebar(props: SidebarProps) {
   const [chatExpanded, setChatExpanded] = useState(true)
   const [channelsExpanded, setChannelsExpanded] = useState(true)
+  const [tasksExpanded, setTasksExpanded] = useState(true)
 
   const statusColor: Record<string, string> = {
     connected: 'var(--green)',
@@ -92,6 +95,39 @@ export function Sidebar(props: SidebarProps) {
             onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
           >
             + 新增频道
+          </div>
+        </div>
+      )}
+
+      {/* Tasks section */}
+      <SectionHeader
+        label="定时任务" count={props.cronJobs.length}
+        expanded={tasksExpanded}
+        onToggle={() => setTasksExpanded(!tasksExpanded)}
+        onClick={() => props.onPageChange('tasks')}
+        active={props.page === 'tasks'}
+      />
+      {tasksExpanded && (
+        <div style={{ padding: '0 8px 4px', display: 'flex', flexDirection: 'column', gap: 1 }}>
+          {props.cronJobs.map(job => (
+            <SidebarItem
+              key={job.id}
+              label={job.name}
+              dotColor={job.enabled ? 'var(--green)' : 'var(--text-muted)'}
+              active={false}
+              onClick={() => props.onPageChange('tasks')}
+            />
+          ))}
+          <div
+            onClick={props.onAddTask}
+            style={{
+              padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+              fontSize: 11, color: 'var(--text-dim)', transition: 'color 0.12s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+          >
+            + 新增任务
           </div>
         </div>
       )}

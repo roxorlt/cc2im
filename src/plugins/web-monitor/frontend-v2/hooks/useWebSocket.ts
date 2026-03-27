@@ -30,6 +30,21 @@ export interface ChannelInfo {
   label: string
 }
 
+export interface CronJobInfo {
+  id: string
+  name: string
+  agentId: string
+  scheduleType: 'cron' | 'once' | 'interval'
+  scheduleValue: string
+  timezone: string
+  message: string
+  enabled: boolean
+  nextRun: string | null
+  createdAt: string
+  createdBy: string
+  recentRuns: Array<{ id: string; firedAt: string; status: string; detail?: string }>
+}
+
 export interface MessageEntry {
   event: HubEventData
   receivedAt: string
@@ -42,6 +57,7 @@ interface Snapshot {
   recentLogs?: Array<{ source: string; line: string }>
   channels?: ChannelInfo[]
   nicknames?: Array<{ channelId: string; userId: string; nickname: string }>
+  cronJobs?: CronJobInfo[]
 }
 
 export function useWebSocket() {
@@ -51,6 +67,7 @@ export function useWebSocket() {
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [logs, setLogs] = useState<Array<{ source: string; line: string; ts: string }>>([])
   const [channels, setChannels] = useState<ChannelInfo[]>([])
+  const [cronJobs, setCronJobs] = useState<CronJobInfo[]>([])
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const wsRef = useRef<WebSocket | null>(null)
 
@@ -86,6 +103,7 @@ export function useWebSocket() {
           }
           setNicknames(map)
         }
+        setCronJobs(snap.cronJobs || [])
         return
       }
 
@@ -136,6 +154,10 @@ export function useWebSocket() {
           })
         }
 
+        if (ev.kind === 'cron_fired') {
+          fetch('/api/cron-jobs').then(r => r.json()).then(setCronJobs).catch(() => {})
+        }
+
         if (['message_in', 'message_out', 'permission_request', 'permission_verdict'].includes(ev.kind)) {
           setMessages(prev => [...prev.slice(-199), { event: ev, receivedAt: new Date().toISOString() }])
         }
@@ -152,5 +174,5 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames }
+  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames }
 }

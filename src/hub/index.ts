@@ -10,6 +10,7 @@ import { AgentManager } from './agent-manager.js'
 import { HubContextImpl } from './hub-context.js'
 import { PluginManager } from './plugin-manager.js'
 import { createPersistencePlugin } from '../plugins/persistence/index.js'
+import { createCronSchedulerPlugin } from '../plugins/cron-scheduler/index.js'
 import { WeixinChannel } from '../plugins/weixin/weixin-channel.js'
 import { loadChannelConfigs } from '../shared/channel-config.js'
 import { createChannelManagerPlugin } from '../plugins/channel-manager/index.js'
@@ -83,6 +84,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     channels.push(new WeixinChannel())
   }
   pluginManager.register(createPersistencePlugin())
+  pluginManager.register(createCronSchedulerPlugin())
   pluginManager.register(createChannelManagerPlugin(channels))
   pluginManager.register(createWebMonitorPlugin())
 
@@ -180,6 +182,61 @@ async function handleManagement(
       result = { success: true, data: agentManager.list() }
       break
     }
+    case 'cron_create': {
+      const { createJob: dbCreate, CronScheduler: Sched } = await import('../plugins/cron-scheduler/index.js')
+      const p = msg.params!
+      const tmpSched = new Sched(ctx)
+      const nextRun = tmpSched.calcNextRun(p.scheduleType!, p.scheduleValue!, p.timezone || 'Asia/Shanghai')
+
+      if (!nextRun) {
+        const errMsg = p.scheduleType === 'once'
+          ? 'Once schedule is in the past'
+          : `Invalid schedule: ${p.scheduleType} "${p.scheduleValue}"`
+        result = { success: false, error: errMsg }
+        break
+      }
+
+      const job = dbCreate({
+        name: p.name!,
+        agentId: p.agentId || agentId,
+        scheduleType: p.scheduleType!,
+        scheduleValue: p.scheduleValue!,
+        timezone: p.timezone || 'Asia/Shanghai',
+        message: p.message!,
+        enabled: true,
+        nextRun,
+        createdBy: agentId,
+      })
+      result = { success: true, data: job }
+      break
+    }
+
+    case 'cron_list': {
+      const { listJobs: dbList, getRecentRuns: dbRuns } = await import('../plugins/cron-scheduler/index.js')
+      const jobs = dbList(msg.params?.agentId)
+      const data = jobs.map(j => ({
+        ...j,
+        recentRuns: dbRuns(j.id, 5),
+      }))
+      result = { success: true, data }
+      break
+    }
+
+    case 'cron_delete': {
+      const { deleteJob: dbDelete } = await import('../plugins/cron-scheduler/index.js')
+      const ok = dbDelete(msg.params!.jobId!)
+      result = ok ? { success: true } : { success: false, error: 'Job not found' }
+      break
+    }
+
+    case 'cron_update': {
+      const { updateJob: dbUpdate } = await import('../plugins/cron-scheduler/index.js')
+      const { jobId, ...updates } = msg.params as any
+      const ok = dbUpdate(jobId, updates)
+      result = ok ? { success: true } : { success: false, error: 'Job not found' }
+      break
+    }
+
     default:
       result = { success: false, error: `Unknown action: ${msg.action}` }
   }
