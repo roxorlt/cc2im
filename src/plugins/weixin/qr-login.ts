@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import QRCode from 'qrcode'
 
 const ILINK_BASE = 'https://ilinkai.weixin.qq.com'
 const CRED_DIR = join(homedir(), '.weixin-bot')
@@ -8,7 +9,8 @@ const CRED_PATH = join(CRED_DIR, 'credentials.json')
 const POLL_INTERVAL = 2000
 
 export interface QrCode {
-  qrUrl: string
+  qrUrl: string      // WeChat scan URL (for reference)
+  qrDataUrl: string  // data:image/png;base64,... (for <img src>)
   qrToken: string
 }
 
@@ -28,7 +30,10 @@ export async function fetchQrCode(): Promise<QrCode> {
   if (!data.qrcode_img_content || !data.qrcode) {
     throw new Error('iLink 返回的 QR 数据不完整')
   }
-  return { qrUrl: data.qrcode_img_content, qrToken: data.qrcode }
+  const qrUrl = data.qrcode_img_content
+  // Generate QR code as data URL (iLink returns a scan URL, not an image)
+  const qrDataUrl = await QRCode.toDataURL(qrUrl, { width: 220, margin: 1 })
+  return { qrUrl, qrDataUrl, qrToken: data.qrcode }
 }
 
 export async function checkQrStatus(qrToken: string): Promise<{ status: QrStatus; credentials?: QrCredentials }> {

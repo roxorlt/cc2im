@@ -59,6 +59,7 @@ export function useWebSocket() {
   const [channels, setChannels] = useState<ChannelInfo[]>([])
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const [qrLogin, setQrLogin] = useState<QrLoginState | null>(null)
+  const qrDismissedRef = useRef<string | null>(null) // channelId of dismissed QR
   const wsRef = useRef<WebSocket | null>(null)
 
   const connect = useCallback(() => {
@@ -97,6 +98,14 @@ export function useWebSocket() {
       }
 
       if (msg.type === 'qr_status') {
+        // Ignore events for a dismissed QR session
+        if (qrDismissedRef.current === msg.channelId) {
+          // Unless it's a terminal state — clear the dismiss flag
+          if (msg.status === 'confirmed' || msg.status === 'expired') {
+            qrDismissedRef.current = null
+          }
+          return
+        }
         setQrLogin({
           channelId: msg.channelId,
           qrUrl: msg.qrUrl,
@@ -168,5 +177,17 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames, qrLogin, setQrLogin }
+  const dismissQrLogin = useCallback(() => {
+    setQrLogin(prev => {
+      if (prev) qrDismissedRef.current = prev.channelId
+      return null
+    })
+  }, [])
+
+  const triggerQrLogin = useCallback((channelId: string) => {
+    // Clear any dismiss flag for this channel so new QR events come through
+    if (qrDismissedRef.current === channelId) qrDismissedRef.current = null
+  }, [])
+
+  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames, qrLogin, dismissQrLogin, triggerQrLogin }
 }

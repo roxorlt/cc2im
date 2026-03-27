@@ -42,7 +42,7 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames, qrLogin, setQrLogin } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames, qrLogin, dismissQrLogin, triggerQrLogin } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
 
@@ -61,6 +61,7 @@ export function App() {
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const handleTriggerLogin = async (channelId: string) => {
+    triggerQrLogin(channelId) // Clear dismiss flag so QR events come through
     try {
       const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}/login`, { method: 'POST' })
       if (!res.ok) {
@@ -73,7 +74,11 @@ export function App() {
   }
 
   const handleCloseQr = () => {
-    setQrLogin(null)
+    // Stop backend polling + dismiss frontend state
+    if (qrLogin) {
+      fetch(`/api/channels/${encodeURIComponent(qrLogin.channelId)}/login`, { method: 'DELETE' }).catch(() => {})
+    }
+    dismissQrLogin()
   }
 
   const handleSetNickname = async (channelId: string, userId: string, nickname: string) => {

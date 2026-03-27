@@ -235,7 +235,7 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
           }
           await ctx!.addChannel(type, channelId, accountName)
           res.writeHead(201, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ id: channelId, type, label: accountName, status: 'connecting' }))
+          res.end(JSON.stringify({ id: channelId, type, label: accountName, status: 'disconnected' }))
         } catch (err: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
@@ -303,12 +303,12 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
 
           const qr = await fetchQrCode()
 
-          // Respond with QR URL immediately
+          // Respond with QR data URL immediately
           res.writeHead(200, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ qrUrl: qr.qrUrl }))
+          res.end(JSON.stringify({ qrUrl: qr.qrDataUrl }))
 
-          // Broadcast initial QR status to browser
-          broadcastWs({ type: 'qr_status', channelId, status: 'pending' as QrStatus, qrUrl: qr.qrUrl })
+          // Broadcast initial QR status to browser (use data URL for rendering)
+          broadcastWs({ type: 'qr_status', channelId, status: 'pending' as QrStatus, qrUrl: qr.qrDataUrl })
 
           // Start background polling (auto-expire after 10 minutes as safety net)
           const pollStart = Date.now()
@@ -317,12 +317,12 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
             if (Date.now() - pollStart > MAX_POLL_MS) {
               clearInterval(poll)
               activeQrPolls.delete(channelId)
-              broadcastWs({ type: 'qr_status', channelId, status: 'expired', qrUrl: qr.qrUrl })
+              broadcastWs({ type: 'qr_status', channelId, status: 'expired', qrUrl: qr.qrDataUrl })
               return
             }
             try {
               const result = await checkQrStatus(qr.qrToken)
-              broadcastWs({ type: 'qr_status', channelId, status: result.status, qrUrl: qr.qrUrl })
+              broadcastWs({ type: 'qr_status', channelId, status: result.status, qrUrl: qr.qrDataUrl })
 
               if (result.status === 'confirmed' && result.credentials) {
                 clearInterval(poll)
@@ -351,6 +351,18 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
           }
         }
       })()
+      return
+    }
+
+    // Cancel QR polling (called when user dismisses QR overlay)
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/login$/) && req.method === 'DELETE') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (activeQrPolls.has(channelId)) {
+        clearInterval(activeQrPolls.get(channelId)!)
+        activeQrPolls.delete(channelId)
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"ok":true}')
       return
     }
 
