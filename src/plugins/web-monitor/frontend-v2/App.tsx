@@ -3,9 +3,12 @@ import { useWebSocket } from './hooks/useWebSocket'
 import { useTokens } from './hooks/useTokens'
 import { useUsage } from './hooks/useUsage'
 import { TopBar } from './components/TopBar'
-import { AgentList } from './components/AgentList'
+import { Sidebar } from './components/Sidebar'
 import { MessageFlow } from './components/MessageFlow'
 import { LogViewer } from './components/LogViewer'
+import { ChannelsPage } from './components/ChannelsPage'
+
+type Page = 'chat' | 'channels'
 
 const tabs = [
   { id: 'messages' as const, label: '消息流' },
@@ -39,11 +42,32 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs, channels } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels, nicknames, setNicknames } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
+
+  const [page, setPage] = useState<Page>('chat')
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
+  const [showAddChannel, setShowAddChannel] = useState(false)
+  const [channelFilter, setChannelFilter] = useState<string | null>(null)
+
+  const handleSetNickname = async (channelId: string, userId: string, nickname: string) => {
+    try {
+      await fetch(`/api/nicknames/${encodeURIComponent(channelId)}/${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname }),
+      })
+      setNicknames(prev => {
+        const next = new Map(prev)
+        next.set(`${channelId}:${userId}`, nickname)
+        return next
+      })
+    } catch (err) {
+      console.error('Failed to set nickname:', err)
+    }
+  }
 
   const activeAgent = selected || agents[0]?.name || null
 
@@ -52,58 +76,93 @@ export function App() {
       <TopBar tokenStats={tokenStats} hubConnected={hubConnected} />
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <AgentList agents={agents} selected={activeAgent} onSelect={setSelected} />
+        <Sidebar
+          page={page} onPageChange={setPage}
+          agents={agents} selectedAgent={activeAgent} onSelectAgent={setSelected}
+          channels={channels}
+          onAddChannel={() => { setPage('channels'); setShowAddChannel(true) }}
+        />
 
-        {activeAgent ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
-            {/* Tab bar */}
-            <div style={{
-              display: 'flex', gap: 0,
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--bg-panel)',
-            }}>
-              {tabs.map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
+        {page === 'chat' ? (
+          activeAgent ? (
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--bg-deep)' }}>
+              {/* Tab bar */}
+              <div style={{
+                display: 'flex', gap: 0,
+                borderBottom: '1px solid var(--border)',
+                background: 'var(--bg-panel)',
+              }}>
+                {tabs.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    style={{
+                      padding: '10px 20px',
+                      fontSize: 12, fontWeight: 500,
+                      fontFamily: 'var(--font-mono)',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: tab === t.id ? 'var(--accent)' : 'var(--text-dim)',
+                      borderBottom: `2px solid ${tab === t.id ? 'var(--accent)' : 'transparent'}`,
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+                {/* Channel filter */}
+                <select
+                  value={channelFilter || ''}
+                  onChange={e => setChannelFilter(e.target.value || null)}
                   style={{
-                    padding: '10px 20px',
-                    fontSize: 12, fontWeight: 500,
+                    background: 'var(--bg-deep)', border: '1px solid var(--border)',
+                    borderRadius: 4, padding: '4px 8px',
+                    fontSize: 10, color: 'var(--text-dim)',
                     fontFamily: 'var(--font-mono)',
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: tab === t.id ? 'var(--accent)' : 'var(--text-dim)',
-                    borderBottom: `2px solid ${tab === t.id ? 'var(--accent)' : 'transparent'}`,
-                    transition: 'all 0.15s ease',
+                    outline: 'none', cursor: 'pointer',
+                    marginLeft: 8,
                   }}
                 >
-                  {t.label}
-                </button>
-              ))}
-
-              {/* Active agent indicator */}
-              <div style={{
-                marginLeft: 'auto', padding: '10px 16px',
-                fontSize: 10, color: 'var(--text-muted)',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
-                <span style={{ color: 'var(--text-dim)' }}>viewing</span>
-                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeAgent}</span>
+                  <option value="">全部频道</option>
+                  {channels.map(ch => (
+                    <option key={ch.id} value={ch.id}>{ch.label}</option>
+                  ))}
+                </select>
+                <div style={{
+                  marginLeft: 'auto', padding: '10px 16px',
+                  fontSize: 10, color: 'var(--text-muted)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span style={{ color: 'var(--text-dim)' }}>viewing</span>
+                  <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeAgent}</span>
+                </div>
               </div>
-            </div>
 
-            {tab === 'messages'
-              ? <MessageFlow messages={messages} agentId={activeAgent} />
-              : <LogViewer logs={logs} source={activeAgent} />
-            }
-          </div>
+              {tab === 'messages'
+                ? <MessageFlow
+                    messages={messages}
+                    agentId={activeAgent}
+                    channelFilter={channelFilter}
+                    nicknames={nicknames}
+                    onSetNickname={handleSetNickname}
+                  />
+                : <LogViewer logs={logs} source={activeAgent} />
+              }
+            </div>
+          ) : (
+            <div style={{
+              flex: 1, display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', gap: 12,
+            }}>
+              <span style={{ fontSize: 36, color: 'var(--text-muted)', opacity: 0.2 }}>⬡</span>
+              <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>选择 Agent</span>
+            </div>
+          )
         ) : (
-          <div style={{
-            flex: 1, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 12,
-          }}>
-            <span style={{ fontSize: 36, color: 'var(--text-muted)', opacity: 0.2 }}>⬡</span>
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>选择 Agent</span>
-          </div>
+          <ChannelsPage
+            channels={channels}
+            showAddDialog={showAddChannel}
+            onCloseAddDialog={() => setShowAddChannel(false)}
+          />
         )}
       </div>
 

@@ -11,6 +11,7 @@ import { HubContextImpl } from './hub-context.js'
 import { PluginManager } from './plugin-manager.js'
 import { createPersistencePlugin } from '../plugins/persistence/index.js'
 import { WeixinChannel } from '../plugins/weixin/weixin-channel.js'
+import { loadChannelConfigs } from '../shared/channel-config.js'
 import { createChannelManagerPlugin } from '../plugins/channel-manager/index.js'
 import { createWebMonitorPlugin } from '../plugins/web-monitor/index.js'
 import { SOCKET_DIR } from '../shared/socket.js'
@@ -65,7 +66,22 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
 
   ctx = new HubContextImpl(socketServer, agentManager, router, config)
   const pluginManager = new PluginManager()
-  const channels = [new WeixinChannel()]
+
+  const channelConfigs = loadChannelConfigs()
+  const channels = channelConfigs.map(cfg => {
+    switch (cfg.type) {
+      case 'weixin':
+        return new WeixinChannel(cfg.id, cfg.accountName)
+      default:
+        console.warn(`[hub] Unknown channel type: ${cfg.type}, skipping "${cfg.id}"`)
+        return null
+    }
+  }).filter((ch): ch is WeixinChannel => ch !== null)
+
+  if (channels.length === 0) {
+    console.warn('[hub] No channels configured, creating default weixin channel')
+    channels.push(new WeixinChannel())
+  }
   pluginManager.register(createPersistencePlugin())
   pluginManager.register(createChannelManagerPlugin(channels))
   pluginManager.register(createWebMonitorPlugin())

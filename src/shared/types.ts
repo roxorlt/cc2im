@@ -6,6 +6,7 @@ export interface HubToSpokeMessage {
   msgType: string // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaPath?: string // 媒体文件路径（hub 下载后传给 spoke）
   timestamp: string
+  channelId?: string  // internal use: persistence tracks channel source
 }
 
 // Hub → Spoke: permission verdict（用户在微信回复了 yes/no）
@@ -125,6 +126,8 @@ export interface HubEventData {
   code?: number
   msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaUrl?: string   // '/media/{filename}' — only for media messages
+  channelId?: string    // source channel instance ID (e.g. "weixin-roxor")
+  channelType?: string  // channel platform type (e.g. "weixin", "telegram")
 }
 
 export interface HubEvent {

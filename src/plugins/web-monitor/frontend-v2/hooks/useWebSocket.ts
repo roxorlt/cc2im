@@ -20,6 +20,8 @@ export interface HubEventData {
   code?: number
   msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaUrl?: string   // '/media/{filename}'
+  channelId?: string
+  channelType?: string
 }
 
 export interface ChannelInfo {
@@ -37,6 +39,9 @@ interface Snapshot {
   agents: AgentStatus[]
   hubConnected: boolean
   recentMessages: MessageEntry[]
+  recentLogs?: Array<{ source: string; line: string }>
+  channels?: ChannelInfo[]
+  nicknames?: Array<{ channelId: string; userId: string; nickname: string }>
 }
 
 export function useWebSocket() {
@@ -46,6 +51,7 @@ export function useWebSocket() {
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [logs, setLogs] = useState<Array<{ source: string; line: string; ts: string }>>([])
   const [channels, setChannels] = useState<ChannelInfo[]>([])
+  const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
   const wsRef = useRef<WebSocket | null>(null)
 
   const connect = useCallback(() => {
@@ -63,12 +69,22 @@ export function useWebSocket() {
       const msg = JSON.parse(e.data)
 
       if (msg.type === 'snapshot') {
-        const snap = msg as any
+        const snap = msg as { type: string } & Snapshot
         setAgents(snap.agents)
         setHubConnected(snap.hubConnected)
         setMessages(snap.recentMessages || [])
         if (snap.recentLogs) {
-          setLogs(snap.recentLogs.map((l: any) => ({ ...l, ts: new Date().toISOString() })))
+          setLogs(snap.recentLogs.map((l) => ({ ...l, ts: new Date().toISOString() })))
+        }
+        if (snap.channels) {
+          setChannels(snap.channels)
+        }
+        if (snap.nicknames) {
+          const map = new Map<string, string>()
+          for (const n of snap.nicknames) {
+            map.set(`${n.channelId}:${n.userId}`, n.nickname)
+          }
+          setNicknames(map)
         }
         return
       }
@@ -136,5 +152,5 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels }
+  return { agents, hubConnected, wsConnected, messages, logs, channels, nicknames, setNicknames }
 }

@@ -95,7 +95,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
               return
             }
             console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
-            ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString() })
+            ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString(), channelId: ref.channelId })
             await channelSendText(ref, msg.text)
             break
           }
@@ -160,6 +160,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
                 timestamp: new Date().toISOString(),
                 msgType,
                 mediaUrl: `/media/${mediaName}`,
+                channelId: ref.channelId,
               })
             } catch (err: any) {
               console.error(`[hub] Failed to send file from ${agentId}: ${err.message}`)
@@ -170,9 +171,9 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         }
       })
 
-      // --- Channel -> Agent: handle incoming channel messages ---
+      // --- Channel -> Agent: wire up message + status handlers ---
 
-      for (const ch of channels) {
+      function wireChannel(ch: Cc2imChannel) {
         ch.onMessage(async (incomingMsg: IncomingChannelMessage) => {
           const userId = incomingMsg.userId
           const channelId = incomingMsg.channelId
@@ -222,7 +223,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           const text = buildMessageContent(incomingMsg, routed.text)
           console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
           const mediaUrl = incomingMsg.mediaPath ? `/media/${basename(incomingMsg.mediaPath)}` : undefined
-          ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl })
+          ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl, channelId: incomingMsg.channelId, channelType: incomingMsg.channelType })
           const sent = ctx.deliverToAgent(routed.agentId, {
             type: 'message',
             userId,
@@ -230,6 +231,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
             msgType: incomingMsg.type,
             mediaPath: incomingMsg.mediaPath ?? undefined,
             timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
+            channelId: incomingMsg.channelId,
           })
           if (sent) {
             startPendingAck(routed.agentId, ref)
@@ -239,7 +241,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           }
         })
 
-        // --- Channel status change -> monitor broadcast ---
+        // Channel status change -> monitor broadcast
         ch.onStatusChange((status, detail) => {
           console.log(`[channel-manager] ${ch.label} status: ${status}${detail ? ` (${detail})` : ''}`)
           ctx.broadcastMonitor({
@@ -250,6 +252,56 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           })
         })
       }
+
+      for (const ch of channels) {
+        wireChannel(ch)
+      }
+
+      // --- Runtime channel add/remove ---
+
+      ctx.on('channel:add', async (type: string, channelId: string, accountName: string) => {
+        if (channelMap.has(channelId)) return  // already exists
+
+        if (type === 'weixin') {
+          const { WeixinChannel } = await import('../weixin/weixin-channel.js')
+          const ch = new WeixinChannel(channelId, accountName)
+          channelMap.set(channelId, ch)
+          ctx.registerChannel(ch)
+          wireChannel(ch)
+
+          // Persist
+          const { loadChannelConfigs, saveChannelConfigs } = await import('../../shared/channel-config.js')
+          const configs = loadChannelConfigs()
+          if (!configs.find(c => c.id === channelId)) {
+            configs.push({ id: channelId, type: 'weixin', accountName })
+            saveChannelConfigs(configs)
+          }
+
+          // Connect
+          try {
+            await ch.connect()
+            console.log(`[channel-manager] ${ch.label} connected (runtime add)`)
+          } catch (err: any) {
+            console.error(`[channel-manager] ${ch.label} connect failed: ${err.message}`)
+          }
+        } else {
+          console.warn(`[channel-manager] Unknown channel type: ${type}`)
+        }
+      })
+
+      ctx.on('channel:remove', async (channelId: string) => {
+        const ch = channelMap.get(channelId)
+        if (ch) {
+          try { await ch.disconnect() } catch {}
+          channelMap.delete(channelId)
+        }
+
+        // Persist
+        const { loadChannelConfigs, saveChannelConfigs } = await import('../../shared/channel-config.js')
+        const configs = loadChannelConfigs().filter(c => c.id !== channelId)
+        saveChannelConfigs(configs)
+        console.log(`[channel-manager] Channel "${channelId}" removed`)
+      })
 
       // --- Helper: resolve UserRef for outbound messages ---
 
