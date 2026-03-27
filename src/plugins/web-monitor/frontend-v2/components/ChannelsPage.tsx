@@ -69,7 +69,7 @@ function ChannelCard({ channel, isLast, onRefreshChannels, onTriggerLogin }: { c
     }
   }
 
-  // Parse channel type from id: "weixin-roxor" → "微信"
+  // Parse channel type from id: "weixin-alice" → "微信"
   const dashIdx = channel.id.indexOf('-')
   const channelType = dashIdx > 0 ? channel.id.slice(0, dashIdx) : channel.id
   const typeLabel = channelType === 'weixin' ? '微信' : channelType
@@ -200,7 +200,7 @@ function AddChannelDialog({ onClose, onTriggerLogin }: { onClose: () => void; on
               <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>授权账号名</label>
               <input value={accountName} onChange={e => setAccountName(e.target.value)}
                 autoFocus
-                placeholder="如 roxor、家人"
+                placeholder="如 alice、family"
                 style={{
                   width: '100%', padding: '6px 10px', borderRadius: 4,
                   border: '1px solid var(--border)', background: 'var(--bg-deep)',

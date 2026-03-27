@@ -134,7 +134,7 @@ export interface HubEventData {
   code?: number
   msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaUrl?: string   // '/media/{filename}' — only for media messages
-  channelId?: string    // source channel instance ID (e.g. "weixin-roxor")
+  channelId?: string    // source channel instance ID (e.g. "weixin-alice")
   channelType?: string  // channel platform type (e.g. "weixin", "telegram")
 }
 

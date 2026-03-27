@@ -1,17 +1,22 @@
 {
   "name": "cc2im",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "IM gateway for multiple local Claude Code instances",
+  "author": "roxorlt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roxorlt/cc2im.git"
+  },
+  "homepage": "https://github.com/roxorlt/cc2im#readme",
+  "keywords": ["claude", "claude-code", "wechat", "weixin", "im", "gateway", "mcp"],
   "type": "module",
   "bin": {
     "cc2im": "dist/cli.js"
   },
   "files": [
     "dist",
-    "src",
-    "!src/__tests__",
-    "package.json",
-    "tsconfig.json"
+    "!dist/__tests__"
   ],
   "scripts": {
     "build": "tsc",

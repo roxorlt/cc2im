@@ -2,7 +2,7 @@
  * Channel abstraction — unified interface for IM platform instances.
  *
  * A "channel" is a platform INSTANCE (not type). You can have multiple
- * WeChat channels (weixin-roxor, weixin-family) each with its own
+ * WeChat channels (weixin-alice, weixin-bob) each with its own
  * session, QR code, and user pool.
  */
 
@@ -11,7 +11,7 @@ export type ChannelStatus = 'connected' | 'disconnected' | 'expired' | 'connecti
 export type ChannelType = 'weixin' | 'telegram' | 'slack' | 'discord'
 
 export interface IncomingChannelMessage {
-  channelId: string         // instance ID: "weixin-roxor"
+  channelId: string         // instance ID: "weixin-alice"
   channelType: ChannelType  // platform type: "weixin"
   userId: string            // platform-native user ID
   text?: string
@@ -23,11 +23,11 @@ export interface IncomingChannelMessage {
 }
 
 export interface Cc2imChannel {
-  /** Instance ID, e.g. "weixin-roxor", "weixin-family" */
+  /** Instance ID, e.g. "weixin-alice", "weixin-bob" */
   readonly id: string
   /** Platform type, e.g. "weixin". Determines UI icon and grouping */
   readonly type: ChannelType
-  /** Display label, e.g. "roxor·微信" */
+  /** Display label, e.g. "Alice·微信" */
   readonly label: string
 
   // --- lifecycle ---
