@@ -58,4 +58,17 @@ export class HubContextImpl extends EventEmitter implements HubContext {
   getChannels(): Cc2imChannel[] {
     return Array.from(this.channels.values())
   }
+
+  async addChannel(type: string, channelId: string, accountName: string): Promise<void> {
+    this.emit('channel:add', type, channelId, accountName)
+  }
+
+  async removeChannel(channelId: string): Promise<void> {
+    const ch = this.channels.get(channelId)
+    if (ch) {
+      await ch.disconnect()
+      this.channels.delete(channelId)
+    }
+    this.emit('channel:remove', channelId)
+  }
 }

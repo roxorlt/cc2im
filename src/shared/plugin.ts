@@ -19,6 +19,11 @@ export interface HubContext extends EventEmitter {
   getChannel(channelId: string): Cc2imChannel | undefined
   /** Get all registered channels */
   getChannels(): Cc2imChannel[]
+
+  /** Add a channel at runtime (persists to channels.json) */
+  addChannel(type: string, channelId: string, accountName: string): Promise<void>
+  /** Remove a channel at runtime (persists to channels.json) */
+  removeChannel(channelId: string): Promise<void>
 }
 
 /** Plugin definition */

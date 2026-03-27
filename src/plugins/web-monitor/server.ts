@@ -213,8 +213,31 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
     }
 
     if (url.pathname === '/api/channels' && req.method === 'POST') {
-      res.writeHead(501, { 'Content-Type': 'application/json' })
-      res.end('{"error":"not implemented yet — pending channel config persistence"}')
+      if (!ctx) { res.writeHead(503); res.end('{"error":"no hub context"}'); return }
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', async () => {
+        try {
+          const { type, accountName } = JSON.parse(body)
+          if (!type || !accountName) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end('{"error":"type and accountName required"}')
+            return
+          }
+          const channelId = `${type}-${accountName}`
+          if (ctx!.getChannel(channelId)) {
+            res.writeHead(409, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: `Channel "${channelId}" already exists` }))
+            return
+          }
+          await ctx!.addChannel(type, channelId, accountName)
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ id: channelId, type, label: accountName, status: 'connecting' }))
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
       return
     }
 
@@ -236,9 +259,24 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       return
     }
 
-    if (url.pathname.startsWith('/api/channels/') && req.method === 'DELETE') {
-      res.writeHead(501, { 'Content-Type': 'application/json' })
-      res.end('{"error":"not implemented yet — pending channel config persistence"}')
+    if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && req.method === 'DELETE') {
+      if (!ctx) { res.writeHead(503); res.end('{"error":"no hub context"}'); return }
+      const channelId = decodeURIComponent(url.pathname.slice('/api/channels/'.length))
+      if (!ctx.getChannel(channelId)) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end('{"error":"channel not found"}')
+        return
+      }
+      ;(async () => {
+        try {
+          await ctx!.removeChannel(channelId)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('{"ok":true}')
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })()
       return
     }
 
