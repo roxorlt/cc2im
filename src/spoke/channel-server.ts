@@ -27,7 +27,8 @@ export function createChannelServer(agentId: string) {
       },
       instructions: [
         '微信消息通过 <channel source="cc2im"> 到达。',
-        '使用 weixin_reply 工具回复微信消息。',
+        '使用 weixin_reply 工具回复文字消息。',
+        '使用 weixin_send_file 工具发送图片或文件到微信（支持 jpg/png/gif/pdf 等格式）。',
         '回复时从 channel notification 的 meta.userId 提取用户 ID，传入 user_id 参数。',
         '回复不限长度，cc2im 会自动分段发送到微信。',
       ].join('\n'),
