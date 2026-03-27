@@ -1,13 +1,21 @@
 #!/bin/sh
-# Pre-commit hook: run full test suite before allowing commit.
+# Pre-commit hook: type check + full test suite before allowing commit.
 # Installed via: git config core.hooksPath .githooks
 
-echo "Running tests before commit..."
-npm test 2>&1
-
+echo "Type checking..."
+npx tsc --noEmit 2>&1
 if [ $? -ne 0 ]; then
   echo ""
-  echo "❌ Tests failed. Commit aborted."
+  echo "Type check failed. Commit aborted."
+  echo "   Fix the type errors, then try again."
+  exit 1
+fi
+
+echo "Running tests..."
+npm test 2>&1
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "Tests failed. Commit aborted."
   echo "   Fix the failing tests, then try again."
   exit 1
 fi

@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; echo \"$f\" | grep -qE '/src/.*\\.ts$' && echo \"$f\" | grep -qvE '__tests__' && npm test -- --reporter=dot src/__tests__/router.test.ts src/__tests__/chunker.test.ts src/__tests__/frame-parser.test.ts; } 2>/dev/null || true",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; case \"$f\" in */src/*.ts) case \"$f\" in *__tests__*) ;; *) npm test -- --reporter=dot ;; esac ;; esac; } 2>/dev/null || true",
             "timeout": 30,
             "statusMessage": "Running unit tests..."
           }
@@ -27,7 +27,7 @@
           {
             "type": "command",
             "if": "Bash(git merge:*)",
-            "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"⚠️ MERGE GATE: Before merging, confirm that /pre-merge-testing has been run for this branch. If not, run it now before proceeding. This is a mandatory acceptance test step.\"}}'",
+            "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"MERGE GATE: Before merging, confirm that /pre-merge-testing has been run for this branch. If not, run it now before proceeding.\"}}'",
             "statusMessage": "Checking pre-merge testing..."
           }
         ]

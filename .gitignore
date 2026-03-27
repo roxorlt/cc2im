@@ -4,3 +4,4 @@ dist/
 .mcp.json
 src/.DS_Store
 .claude/worktrees
+test-screenshots/
