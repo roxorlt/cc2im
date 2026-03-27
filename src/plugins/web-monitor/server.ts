@@ -16,6 +16,8 @@ import { readStats } from './stats-reader.js'
 import { LogTailer } from './log-tailer.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
 import type { HubEvent, HubEventData } from '../../shared/types.js'
+import type { HubContext } from '../../shared/plugin.js'
+import { getNicknames, setNickname } from '../persistence/db.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 
@@ -28,8 +30,8 @@ interface AgentStatus {
   onlineSince?: string
 }
 
-export async function startWeb(options: { port: number }) {
-  const { port } = options
+export async function startWeb(options: { port: number; ctx?: HubContext }) {
+  const { port, ctx } = options
   const host = '127.0.0.1'
 
   // --- Track agent state from monitor events ---
@@ -192,6 +194,93 @@ export async function startWeb(options: { port: number }) {
       return
     }
 
+    // --- Channel & Nickname API ---
+
+    if (url.pathname === '/api/channels' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      if (ctx) {
+        const channels = ctx.getChannels().map(ch => ({
+          id: ch.id,
+          type: ch.type,
+          label: ch.label,
+          status: ch.getStatus(),
+        }))
+        res.end(JSON.stringify(channels))
+      } else {
+        res.end('[]')
+      }
+      return
+    }
+
+    if (url.pathname === '/api/channels' && req.method === 'POST') {
+      res.writeHead(501, { 'Content-Type': 'application/json' })
+      res.end('{"error":"not implemented yet — pending channel config persistence"}')
+      return
+    }
+
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/probe$/) && req.method === 'POST') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (!ctx) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end('{"error":"no hub context"}')
+        return
+      }
+      const ch = ctx.getChannel(channelId)
+      if (!ch) {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end('{"error":"channel not found"}')
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ id: channelId, status: ch.getStatus() }))
+      return
+    }
+
+    if (url.pathname.startsWith('/api/channels/') && req.method === 'DELETE') {
+      res.writeHead(501, { 'Content-Type': 'application/json' })
+      res.end('{"error":"not implemented yet — pending channel config persistence"}')
+      return
+    }
+
+    if (url.pathname === '/api/nicknames' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      try {
+        res.end(JSON.stringify(getNicknames()))
+      } catch {
+        res.end('[]')
+      }
+      return
+    }
+
+    if (url.pathname.startsWith('/api/nicknames/') && req.method === 'PATCH') {
+      const parts = url.pathname.slice('/api/nicknames/'.length).split('/')
+      if (parts.length !== 2) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end('{"error":"expected /api/nicknames/:channelId/:userId"}')
+        return
+      }
+      const [channelId, userId] = parts.map(decodeURIComponent)
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', () => {
+        try {
+          const { nickname } = JSON.parse(body)
+          if (!nickname || typeof nickname !== 'string') {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end('{"error":"nickname required"}')
+            return
+          }
+          setNickname(channelId, userId, nickname.trim())
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('{"ok":true}')
+        } catch (err: any) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
+      return
+    }
+
     // Serve frontend static files
     const frontendDir = join(import.meta.dirname!, '..', '..', '..', 'dist', 'web-frontend')
     // Try built assets first
@@ -263,11 +352,20 @@ export async function startWeb(options: { port: number }) {
         })
       }
     } catch {}
+
+    let channelList: Array<{ id: string; type: string; label: string; status: string }> = []
+    if (ctx) {
+      channelList = ctx.getChannels().map(ch => ({
+        id: ch.id, type: ch.type, label: ch.label, status: ch.getStatus(),
+      }))
+    }
+
     return {
       agents,
       hubConnected: monitor.isConnected(),
       recentMessages: messageHistory.slice(-50),
       recentLogs: logBuffer.slice(-100),
+      channels: channelList,
     }
   }
 
