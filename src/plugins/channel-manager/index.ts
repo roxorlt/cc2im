@@ -309,6 +309,26 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         console.log(`[channel-manager] Channel "${channelId}" removed`)
       })
 
+      ctx.on('channel:reconnect', async (channelId: string) => {
+        const ch = channelMap.get(channelId)
+        if (!ch) {
+          console.warn(`[channel-manager] reconnect: channel "${channelId}" not found`)
+          return
+        }
+        console.log(`[channel-manager] Reconnecting "${channelId}"...`)
+        try {
+          await ch.disconnect()
+        } catch (err: any) {
+          console.warn(`[channel-manager] disconnect before reconnect failed: ${err.message}`)
+        }
+        try {
+          await ch.connect()
+          console.log(`[channel-manager] "${channelId}" reconnected`)
+        } catch (err: any) {
+          console.error(`[channel-manager] "${channelId}" reconnect failed: ${err.message}`)
+        }
+      })
+
       // --- Helper: resolve UserRef for outbound messages ---
 
       function resolveUserRef(agentId: string, userId?: string): UserRef | null {
