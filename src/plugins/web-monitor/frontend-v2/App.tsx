@@ -39,7 +39,7 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
   const [selected, setSelected] = useState<string | null>(null)
@@ -123,13 +123,26 @@ export function App() {
           {usageStats?.fiveHour && <UsageBar label="CURRENT" utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} />}
           {usageStats?.sevenDay && <UsageBar label="WEEK" utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} />}
         </>}
-        <span style={{ marginLeft: 'auto' }}>
-          <span style={{
-            display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
-            background: wsConnected ? 'var(--green)' : 'var(--red)',
-            marginRight: 4, verticalAlign: 'middle',
-          }} />
-          {wsConnected ? 'ws connected' : 'ws reconnecting'}
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {channels.map(ch => (
+            <span key={ch.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+              {ch.label}
+              <span style={{
+                display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+                background: ch.status === 'connected' ? 'var(--green)'
+                  : ch.status === 'connecting' ? 'var(--yellow, #f0ad4e)'
+                  : 'var(--red)',
+              }} />
+            </span>
+          ))}
+          <span>
+            <span style={{
+              display: 'inline-block', width: 5, height: 5, borderRadius: '50%',
+              background: wsConnected ? 'var(--green)' : 'var(--red)',
+              marginRight: 4, verticalAlign: 'middle',
+            }} />
+            {wsConnected ? 'ws connected' : 'ws reconnecting'}
+          </span>
         </span>
       </div>
     </div>
