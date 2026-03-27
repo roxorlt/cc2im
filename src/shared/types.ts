@@ -31,6 +31,14 @@ export interface SpokeToHubReply {
   text: string
 }
 
+// Spoke → Hub: 发送文件/图片到微信
+export interface SpokeToHubSendFile {
+  type: 'send_file'
+  agentId: string
+  userId: string
+  filePath: string
+}
+
 // Spoke → Hub: 转发 permission request 到微信
 export interface SpokeToHubPermissionRequest {
   type: 'permission_request'
@@ -86,7 +94,7 @@ export interface SpokeToHubHeartbeat {
   agentId: string
 }
 
-export type SpokeToHub = SpokeToHubRegister | SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout | SpokeToHubManagement | SpokeToHubHeartbeat
+export type SpokeToHub = SpokeToHubRegister | SpokeToHubReply | SpokeToHubPermissionRequest | SpokeToHubStatus | SpokeToHubPermissionTimeout | SpokeToHubManagement | SpokeToHubHeartbeat | SpokeToHubSendFile
 
 // Agent 配置
 export interface AgentConfig {
@@ -115,6 +123,8 @@ export interface HubEventData {
   toolName?: string
   behavior?: string
   code?: number
+  msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
+  mediaUrl?: string   // '/media/{filename}' — only for media messages
 }
 
 export interface HubEvent {

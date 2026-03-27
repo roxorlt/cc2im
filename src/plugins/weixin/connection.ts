@@ -5,10 +5,12 @@
 
 import { WeixinBot } from '@pinixai/weixin-bot'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import { homedir } from 'node:os'
+import { randomUUID } from 'node:crypto'
 import { downloadMedia, cleanupMedia } from './media.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
+import { uploadMedia } from './media-upload.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
 
 export type IncomingMessage = {
@@ -139,6 +141,14 @@ export class WeixinConnection {
     await this.bot.run()
   }
 
+  async startTyping(userId: string) {
+    try { await this.bot.sendTyping(userId) } catch {}
+  }
+
+  async stopTyping(userId: string) {
+    try { await this.bot.stopTyping(userId) } catch {}
+  }
+
   async send(userId: string, text: string) {
     const chunks = formatChunks(splitIntoChunks(text))
     const cachedMsg = this.recentMessages.get(userId)
@@ -157,6 +167,119 @@ export class WeixinConnection {
         return
       }
       if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500))
+    }
+  }
+
+  /** Upload a local image and send it as an image message. */
+  async sendImage(userId: string, filePath: string): Promise<void> {
+    const { baseUrl, token, contextToken } = await this.getBotCredentials(userId)
+    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'image', baseUrl, token, userId)
+
+    const msg = {
+      from_user_id: '',
+      to_user_id: userId,
+      client_id: randomUUID(),
+      message_type: 2,    // MessageType.BOT
+      message_state: 2,   // MessageState.FINISH
+      context_token: contextToken,
+      item_list: [{
+        type: 2,           // MessageItemType.IMAGE
+        image_item: {
+          media: cdnMedia,
+          mid_size: rawSize,
+        },
+      }],
+    }
+
+    await this.callSendMessage(baseUrl, token, msg)
+    console.log(`[weixin] Image sent to ${userId}: ${filePath}`)
+  }
+
+  /** Upload a local file and send it as a file message. */
+  async sendFile(userId: string, filePath: string): Promise<void> {
+    const { baseUrl, token, contextToken } = await this.getBotCredentials(userId)
+    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'file', baseUrl, token, userId)
+
+    const msg = {
+      from_user_id: '',
+      to_user_id: userId,
+      client_id: randomUUID(),
+      message_type: 2,    // MessageType.BOT
+      message_state: 2,   // MessageState.FINISH
+      context_token: contextToken,
+      item_list: [{
+        type: 4,           // MessageItemType.FILE
+        file_item: {
+          media: cdnMedia,
+          file_name: basename(filePath),
+          len: String(rawSize),
+        },
+      }],
+    }
+
+    await this.callSendMessage(baseUrl, token, msg)
+    console.log(`[weixin] File sent to ${userId}: ${basename(filePath)}`)
+  }
+
+  // ── private helpers for media send ────────────────────────────────
+
+  /** Extract baseUrl, token, and contextToken from the SDK internals. */
+  private async getBotCredentials(userId: string): Promise<{
+    baseUrl: string
+    token: string
+    contextToken: string
+  }> {
+    const bot = this.bot as any
+    const baseUrl: string = bot.baseUrl
+    const creds = await bot.ensureCredentials()
+    const token: string = creds.token
+
+    // contextToken: prefer SDK's internal map, fall back to our cache
+    const contextToken: string | undefined =
+      bot.contextTokens?.get(userId) ??
+      this.recentMessages.get(userId)?._contextToken
+
+    if (!contextToken) {
+      throw new Error(
+        `No context token for user ${userId}. The user must send a message first.`,
+      )
+    }
+
+    return { baseUrl, token, contextToken }
+  }
+
+  /**
+   * POST /ilink/bot/sendmessage — mirrors the SDK's sendMessage()
+   * which is not re-exported from the package's main entry.
+   */
+  private async callSendMessage(
+    baseUrl: string,
+    token: string,
+    msg: Record<string, unknown>,
+  ): Promise<void> {
+    const url = new URL('/ilink/bot/sendmessage', `${baseUrl.replace(/\/+$/, '')}/`)
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        AuthorizationType: 'ilink_bot_token',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        msg,
+        base_info: { channel_version: '1.0.0' },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    })
+
+    if (!resp.ok) {
+      const text = await resp.text()
+      throw new Error(`sendMessage failed: HTTP ${resp.status} — ${text}`)
+    }
+
+    const body = (await resp.json()) as { ret?: number; errmsg?: string }
+    if (body.ret && body.ret !== 0) {
+      throw new Error(`sendMessage returned ret=${body.ret}: ${body.errmsg ?? ''}`)
     }
   }
 }

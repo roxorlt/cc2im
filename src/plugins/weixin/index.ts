@@ -3,9 +3,14 @@
  * Owns: WeixinConnection, PermissionManager, user tracking, message routing.
  */
 
+import { basename, join } from 'node:path'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import type { Cc2imPlugin, HubContext } from '../../shared/plugin.js'
+import { SOCKET_DIR } from '../../shared/socket.js'
 import { WeixinConnection } from './connection.js'
 import { PermissionManager } from './permission.js'
+
+const TYPING_ACK_DELAY_MS = 10_000 // 10s 后发"处理中"
 
 export function createWeixinPlugin(): Cc2imPlugin {
   let weixin: WeixinConnection
@@ -13,6 +18,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
   let cleanupInterval: ReturnType<typeof setInterval>
   const lastUserByAgent = new Map<string, string>()
   let lastGlobalUser: string | null = null
+  // Per-agent pending ack timer: agentId → { userId, timer }
+  const pendingAck = new Map<string, { userId: string; timer: ReturnType<typeof setTimeout> }>()
 
   return {
     name: 'weixin',
@@ -20,10 +27,32 @@ export function createWeixinPlugin(): Cc2imPlugin {
       weixin = new WeixinConnection()
       permissionMgr = new PermissionManager()
 
+      /** Clear pending ack timer for an agent (called when agent responds) */
+      function clearPendingAck(agentId: string) {
+        const pending = pendingAck.get(agentId)
+        if (pending) {
+          clearTimeout(pending.timer)
+          pendingAck.delete(agentId)
+          weixin.stopTyping(pending.userId).catch(() => {})
+        }
+      }
+
+      /** Start typing indicator + delayed ack for a user→agent message */
+      function startPendingAck(agentId: string, userId: string) {
+        clearPendingAck(agentId) // clear any previous
+        weixin.startTyping(userId).catch(() => {})
+        const timer = setTimeout(async () => {
+          pendingAck.delete(agentId)
+          await weixin.send(userId, `⏳ 收到，正在处理...`).catch(() => {})
+        }, TYPING_ACK_DELAY_MS)
+        pendingAck.set(agentId, { userId, timer })
+      }
+
       // --- Spoke → WeChat: handle spoke messages ---
       ctx.on('spoke:message', async (agentId: string, msg: any) => {
         switch (msg.type) {
           case 'reply': {
+            clearPendingAck(agentId)
             console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
             ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString() })
             await weixin.send(msg.userId, msg.text)
@@ -40,6 +69,41 @@ export function createWeixinPlugin(): Cc2imPlugin {
           }
           case 'permission_timeout': {
             permissionMgr.handleTimeout(msg.requestId)
+            break
+          }
+          case 'send_file': {
+            clearPendingAck(agentId)
+            const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+            const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm'])
+            const ext = msg.filePath.split('.').pop()?.toLowerCase() || ''
+            const isImage = IMAGE_EXTS.has(ext)
+            const isVideo = VIDEO_EXTS.has(ext)
+            const msgType = isImage ? 'image' : isVideo ? 'video' : 'file'
+
+            try {
+              if (isImage) {
+                await weixin.sendImage(msg.userId, msg.filePath)
+              } else {
+                await weixin.sendFile(msg.userId, msg.filePath)
+              }
+              // Copy to media dir so dashboard can preview
+              const mediaDir = join(SOCKET_DIR, 'media')
+              const mediaName = `${Date.now()}-${basename(msg.filePath)}`
+              try {
+                mkdirSync(mediaDir, { recursive: true })
+                copyFileSync(msg.filePath, join(mediaDir, mediaName))
+              } catch {}
+              console.log(`[hub] File sent from ${agentId} to ${msg.userId}: ${msg.filePath}`)
+              ctx.broadcastMonitor({
+                kind: 'message_out', agentId, userId: msg.userId,
+                text: isImage ? '[图片]' : `[${msgType}] ${basename(msg.filePath)}`,
+                timestamp: new Date().toISOString(),
+                msgType,
+                mediaUrl: `/media/${mediaName}`,
+              })
+            } catch (err: any) {
+              console.error(`[hub] Failed to send file from ${agentId}: ${err.message}`)
+            }
             break
           }
           // NOTE: 'management' type is handled by hub core, not by this plugin
@@ -90,7 +154,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
         // Forward to spoke — persistence plugin will queue if offline
         const text = buildMessageContent(incomingMsg, routed.text)
         console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
-        ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString() })
+        const mediaUrl = incomingMsg.mediaPath ? `/media/${basename(incomingMsg.mediaPath)}` : undefined
+        ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl })
         const sent = ctx.deliverToAgent(routed.agentId, {
           type: 'message',
           userId,
@@ -99,7 +164,9 @@ export function createWeixinPlugin(): Cc2imPlugin {
           mediaPath: incomingMsg.mediaPath ?? undefined,
           timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
         })
-        if (!sent) {
+        if (sent) {
+          startPendingAck(routed.agentId, userId)
+        } else {
           console.log(`[hub] Message queued for offline agent "${routed.agentId}"`)
           await weixin.send(userId, `📬 ${routed.agentId} 暂时离线，消息已排队，上线后自动投递。`)
         }
