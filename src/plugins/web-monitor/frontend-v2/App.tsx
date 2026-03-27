@@ -43,7 +43,7 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames, qrLogin, dismissQrLogin, triggerQrLogin } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
 
@@ -69,6 +69,27 @@ export function App() {
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
+
+  const handleTriggerLogin = async (channelId: string) => {
+    triggerQrLogin(channelId) // Clear dismiss flag so QR events come through
+    try {
+      const res = await fetch(`/api/channels/${encodeURIComponent(channelId)}/login`, { method: 'POST' })
+      if (!res.ok) {
+        const data = await res.json()
+        console.error('Login failed:', data.error)
+      }
+    } catch (err) {
+      console.error('Login request failed:', err)
+    }
+  }
+
+  const handleCloseQr = () => {
+    // Stop backend polling + dismiss frontend state
+    if (qrLogin) {
+      fetch(`/api/channels/${encodeURIComponent(qrLogin.channelId)}/login`, { method: 'DELETE' }).catch(() => {})
+    }
+    dismissQrLogin()
+  }
 
   const handleSetNickname = async (channelId: string, userId: string, nickname: string) => {
     try {
@@ -184,6 +205,9 @@ export function App() {
             showAddDialog={showAddChannel}
             onCloseAddDialog={() => setShowAddChannel(false)}
             onRefreshChannels={refreshChannels}
+            qrLogin={qrLogin}
+            onTriggerLogin={handleTriggerLogin}
+            onCloseQr={handleCloseQr}
           />
         ) : (
           <ScheduledTasksPage

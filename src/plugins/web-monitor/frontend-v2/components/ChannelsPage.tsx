@@ -1,11 +1,15 @@
 import React, { useState } from 'react'
-import type { ChannelInfo } from '../hooks/useWebSocket'
+import { QrLoginOverlay } from './QrLoginOverlay'
+import type { ChannelInfo, QrLoginState } from '../hooks/useWebSocket'
 
 interface ChannelsPageProps {
   channels: ChannelInfo[]
   showAddDialog: boolean
   onCloseAddDialog: () => void
   onRefreshChannels: () => void
+  qrLogin: QrLoginState | null
+  onTriggerLogin: (channelId: string) => void
+  onCloseQr: () => void
 }
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -21,7 +25,7 @@ const btnStyle: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',
 }
 
-function ChannelCard({ channel, isLast, onRefreshChannels }: { channel: ChannelInfo; isLast: boolean; onRefreshChannels: () => void }) {
+function ChannelCard({ channel, isLast, onRefreshChannels, onTriggerLogin }: { channel: ChannelInfo; isLast: boolean; onRefreshChannels: () => void; onTriggerLogin: (id: string) => void }) {
   const status = statusLabels[channel.status] || statusLabels.disconnected
   const [probing, setProbing] = useState(false)
   const [probeResult, setProbeResult] = useState<string | null>(null)
@@ -113,6 +117,11 @@ function ChannelCard({ channel, isLast, onRefreshChannels }: { channel: ChannelI
             {disconnecting ? '断开中...' : '断开'}
           </button>
         )}
+        {channel.status === 'expired' && (
+          <button onClick={() => onTriggerLogin(channel.id)} style={{ ...btnStyle, color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+            重新登录
+          </button>
+        )}
         {!isLast && (channel.status === 'disconnected' || channel.status === 'expired') && (
           <button onClick={handleDelete} disabled={deleting} style={{ ...btnStyle, color: 'var(--red)' }}>
             {deleting ? '删除中...' : '删除'}
@@ -123,11 +132,10 @@ function ChannelCard({ channel, isLast, onRefreshChannels }: { channel: ChannelI
   )
 }
 
-function AddChannelDialog({ onClose }: { onClose: () => void }) {
+function AddChannelDialog({ onClose, onTriggerLogin }: { onClose: () => void; onTriggerLogin: (channelId: string) => void }) {
   const [type, setType] = useState('weixin')
   const [accountName, setAccountName] = useState('')
   const [creating, setCreating] = useState(false)
-  const [created, setCreated] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleCreate = async () => {
@@ -145,7 +153,9 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
         setError(data.error || 'Failed')
         return
       }
-      setCreated(true)
+      const data = await res.json()
+      onClose()
+      onTriggerLogin(data.id)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -172,23 +182,7 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
       >
         <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>新增频道</div>
 
-        {created ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{
-              padding: '12px 16px', borderRadius: 6,
-              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
-              fontSize: 12, color: 'var(--green)', lineHeight: 1.6,
-            }}>
-              频道已创建。请在运行 hub 的终端中完成微信扫码登录。
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={onClose} style={{ ...btnStyle, color: 'var(--accent)', borderColor: 'var(--accent)' }}>
-                完成
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
               <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>频道类型</label>
               <select value={type} onChange={e => setType(e.target.value)}
@@ -229,13 +223,12 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </div>
-        )}
       </div>
     </div>
   )
 }
 
-export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefreshChannels }: ChannelsPageProps) {
+export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefreshChannels, qrLogin, onTriggerLogin, onCloseQr }: ChannelsPageProps) {
   return (
     <div style={{ flex: 1, padding: '20px 24px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -243,9 +236,7 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefr
       </div>
 
       {showAddDialog && (
-        <div style={{ marginBottom: 16 }}>
-          <AddChannelDialog onClose={onCloseAddDialog} />
-        </div>
+        <AddChannelDialog onClose={onCloseAddDialog} onTriggerLogin={onTriggerLogin} />
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -254,9 +245,18 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefr
             暂无频道，点击侧栏「+ 新增频道」添加
           </div>
         ) : (
-          channels.map(ch => <ChannelCard key={ch.id} channel={ch} isLast={channels.length <= 1} onRefreshChannels={onRefreshChannels} />)
+          channels.map(ch => <ChannelCard key={ch.id} channel={ch} isLast={channels.length <= 1} onRefreshChannels={onRefreshChannels} onTriggerLogin={onTriggerLogin} />)
         )}
       </div>
+
+      {qrLogin && !showAddDialog && (
+        <QrLoginOverlay
+          qrUrl={qrLogin.qrUrl}
+          status={qrLogin.status}
+          onClose={onCloseQr}
+          onRetry={() => onTriggerLogin(qrLogin.channelId)}
+        />
+      )}
     </div>
   )
 }

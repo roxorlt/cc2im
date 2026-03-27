@@ -24,6 +24,8 @@ export interface HubContext extends EventEmitter {
   addChannel(type: string, channelId: string, accountName: string): Promise<void>
   /** Remove a channel at runtime (persists to channels.json) */
   removeChannel(channelId: string): Promise<void>
+  /** Reconnect a channel (disconnect + connect with fresh credentials) */
+  reconnectChannel(channelId: string): Promise<void>
 }
 
 /** Plugin definition */

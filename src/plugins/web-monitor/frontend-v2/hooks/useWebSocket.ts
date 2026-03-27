@@ -50,6 +50,12 @@ export interface MessageEntry {
   receivedAt: string
 }
 
+export interface QrLoginState {
+  channelId: string
+  qrUrl: string
+  status: 'pending' | 'scanned' | 'confirmed' | 'expired'
+}
+
 interface Snapshot {
   agents: AgentStatus[]
   hubConnected: boolean
@@ -69,6 +75,8 @@ export function useWebSocket() {
   const [channels, setChannels] = useState<ChannelInfo[]>([])
   const [cronJobs, setCronJobs] = useState<CronJobInfo[]>([])
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
+  const [qrLogin, setQrLogin] = useState<QrLoginState | null>(null)
+  const qrDismissedRef = useRef<string | null>(null) // channelId of dismissed QR
   const wsRef = useRef<WebSocket | null>(null)
 
   const connect = useCallback(() => {
@@ -104,6 +112,23 @@ export function useWebSocket() {
           setNicknames(map)
         }
         setCronJobs(snap.cronJobs || [])
+        return
+      }
+
+      if (msg.type === 'qr_status') {
+        // Ignore events for a dismissed QR session
+        if (qrDismissedRef.current === msg.channelId) {
+          // Unless it's a terminal state — clear the dismiss flag
+          if (msg.status === 'confirmed' || msg.status === 'expired') {
+            qrDismissedRef.current = null
+          }
+          return
+        }
+        setQrLogin({
+          channelId: msg.channelId,
+          qrUrl: msg.qrUrl,
+          status: msg.status,
+        })
         return
       }
 
@@ -174,5 +199,17 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames }
+  const dismissQrLogin = useCallback(() => {
+    setQrLogin(prev => {
+      if (prev) qrDismissedRef.current = prev.channelId
+      return null
+    })
+  }, [])
+
+  const triggerQrLogin = useCallback((channelId: string) => {
+    // Clear any dismiss flag for this channel so new QR events come through
+    if (qrDismissedRef.current === channelId) qrDismissedRef.current = null
+  }, [])
+
+  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames, qrLogin, dismissQrLogin, triggerQrLogin }
 }

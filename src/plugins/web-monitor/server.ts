@@ -20,6 +20,7 @@ import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
+import { fetchQrCode, checkQrStatus, saveCredentials, POLL_INTERVAL, type QrStatus } from '../weixin/qr-login.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 
@@ -40,6 +41,8 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
   const agentState = new Map<string, { status: string; onlineSince?: string }>()
   const MAX_HISTORY = 200
   const HISTORY_PATH = join(SOCKET_DIR, 'web-messages.json')
+
+  const activeQrPolls = new Map<string, ReturnType<typeof setInterval>>()
 
   // Load persisted history on startup
   let messageHistory: Array<{ event: HubEventData; receivedAt: string }> = []
@@ -234,7 +237,7 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
           }
           await ctx!.addChannel(type, channelId, accountName)
           res.writeHead(201, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ id: channelId, type, label: accountName, status: 'connecting' }))
+          res.end(JSON.stringify({ id: channelId, type, label: accountName, status: 'disconnected' }))
         } catch (err: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
@@ -279,7 +282,93 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       return
     }
 
-    if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && !url.pathname.includes('/disconnect') && req.method === 'DELETE') {
+    // --- QR Login ---
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/login$/) && req.method === 'POST') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (!ctx) {
+        res.writeHead(503, { 'Content-Type': 'application/json' })
+        res.end('{"error":"no hub context"}')
+        return
+      }
+      // Note: we intentionally don't check ctx.getChannel(channelId) here.
+      // The channel:add listener is async (dynamic import) and may not have
+      // registered the channel yet. QR login only needs to fetch a QR code
+      // and poll; reconnectChannel (called on confirmed) will find it by then.
+
+      ;(async () => {
+        try {
+          // Cancel any existing poll for this channel
+          if (activeQrPolls.has(channelId)) {
+            clearInterval(activeQrPolls.get(channelId)!)
+            activeQrPolls.delete(channelId)
+          }
+
+          const qr = await fetchQrCode()
+
+          // Respond with QR data URL immediately
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ qrUrl: qr.qrDataUrl }))
+
+          // Broadcast initial QR status to browser (use data URL for rendering)
+          broadcastWs({ type: 'qr_status', channelId, status: 'pending' as QrStatus, qrUrl: qr.qrDataUrl })
+
+          // Start background polling (auto-expire after 10 minutes as safety net)
+          const pollStart = Date.now()
+          const MAX_POLL_MS = 10 * 60 * 1000
+          const poll = setInterval(async () => {
+            if (Date.now() - pollStart > MAX_POLL_MS) {
+              clearInterval(poll)
+              activeQrPolls.delete(channelId)
+              broadcastWs({ type: 'qr_status', channelId, status: 'expired', qrUrl: qr.qrDataUrl })
+              return
+            }
+            try {
+              const result = await checkQrStatus(qr.qrToken)
+              broadcastWs({ type: 'qr_status', channelId, status: result.status, qrUrl: qr.qrDataUrl })
+
+              if (result.status === 'confirmed' && result.credentials) {
+                clearInterval(poll)
+                activeQrPolls.delete(channelId)
+                saveCredentials(result.credentials)
+                // Reconnect channel with new credentials
+                try {
+                  await ctx!.reconnectChannel(channelId)
+                } catch (err: any) {
+                  console.error(`[web] QR login reconnect failed: ${err.message}`)
+                }
+              } else if (result.status === 'expired') {
+                clearInterval(poll)
+                activeQrPolls.delete(channelId)
+              }
+            } catch (err: any) {
+              console.error(`[web] QR poll error: ${err.message}`)
+              // Don't stop polling on transient errors
+            }
+          }, POLL_INTERVAL)
+          activeQrPolls.set(channelId, poll)
+        } catch (err: any) {
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: err.message }))
+          }
+        }
+      })()
+      return
+    }
+
+    // Cancel QR polling (called when user dismisses QR overlay)
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/login$/) && req.method === 'DELETE') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (activeQrPolls.has(channelId)) {
+        clearInterval(activeQrPolls.get(channelId)!)
+        activeQrPolls.delete(channelId)
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end('{"ok":true}')
+      return
+    }
+
+    if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && !url.pathname.includes('/disconnect') && !url.pathname.includes('/login') && req.method === 'DELETE') {
       if (!ctx) { res.writeHead(503); res.end('{"error":"no hub context"}'); return }
       const channelId = decodeURIComponent(url.pathname.slice('/api/channels/'.length))
       if (!ctx.getChannel(channelId)) {

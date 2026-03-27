@@ -277,13 +277,9 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
             saveChannelConfigs(configs)
           }
 
-          // Connect
-          try {
-            await ch.connect()
-            console.log(`[channel-manager] ${ch.label} connected (runtime add)`)
-          } catch (err: any) {
-            console.error(`[channel-manager] ${ch.label} connect failed: ${err.message}`)
-          }
+          // Don't auto-connect — wait for QR login to provide credentials
+          // Connection will be triggered by reconnectChannel after QR confirmed
+          console.log(`[channel-manager] Channel "${channelId}" created (awaiting login)`)
         } else {
           console.warn(`[channel-manager] Unknown channel type: ${type}`)
         }
@@ -307,6 +303,26 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         const configs = loadChannelConfigs().filter(c => c.id !== channelId)
         saveChannelConfigs(configs)
         console.log(`[channel-manager] Channel "${channelId}" removed`)
+      })
+
+      ctx.on('channel:reconnect', async (channelId: string) => {
+        const ch = channelMap.get(channelId)
+        if (!ch) {
+          console.warn(`[channel-manager] reconnect: channel "${channelId}" not found`)
+          return
+        }
+        console.log(`[channel-manager] Reconnecting "${channelId}"...`)
+        try {
+          await ch.disconnect()
+        } catch (err: any) {
+          console.warn(`[channel-manager] disconnect before reconnect failed: ${err.message}`)
+        }
+        try {
+          await ch.connect()
+          console.log(`[channel-manager] "${channelId}" reconnected`)
+        } catch (err: any) {
+          console.error(`[channel-manager] "${channelId}" reconnect failed: ${err.message}`)
+        }
       })
 
       // --- Helper: resolve UserRef for outbound messages ---

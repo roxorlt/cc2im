@@ -67,4 +67,8 @@ export class HubContextImpl extends EventEmitter implements HubContext {
     this.channels.delete(channelId)
     this.emit('channel:remove', channelId)
   }
+
+  async reconnectChannel(channelId: string): Promise<void> {
+    this.emit('channel:reconnect', channelId)
+  }
 }
