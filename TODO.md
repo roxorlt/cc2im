@@ -11,6 +11,23 @@
 - ~~Dashboard 媒体渲染~~ — /media/ 路由 + 前端 img/video/file 预览 + detectExt 修复 (2026-03-27)
 - ~~微信媒体发送~~ — CC agent 通过 weixin_send_file MCP 工具发图片/文件到微信 (2026-03-27)
 - ~~Typing indicator + 延迟确认~~ — 10s 无回复自动发"收到，正在处理..." (2026-03-27)
+- ~~Channel 抽象层~~ — Cc2imChannel 接口 + WeixinChannel + ChannelManager 插件 + channel-aware 路由 (2026-03-27)
+
+## 进行中
+
+### Agent 重启竞争修复 (`fix/agent-restart-race` 分支)
+
+**问题**：onEvict (socket 层) 和 child.on('exit') (进程层) 同时触发 auto-restart，竞争产生重复 CC 进程，导致消息被回复两次。
+
+**修复**：
+- onEvict 只杀进程（killForRestart），不直接重启
+- child.on('exit') 是唯一重启入口
+- stop() 设 stoppedManually 标记，用户主动停止不重启
+- 退避机制：5min 内连续崩溃 5 次后放弃重启，延迟递增 5s/10s/15s/20s/25s
+
+**状态**：已实现，待验证后合版
+
+---
 
 ## 待讨论 / 待规划
 
@@ -32,7 +49,7 @@
 
 ---
 
-### 3. macOS 桌面小组件
+### 2. macOS 桌面小组件
 
 **背景**：将 cc2im 关键状态暴露为 macOS Widget，无需打开浏览器即可一瞥 agent 状态、用量、消息概览。
 
@@ -45,19 +62,7 @@
 
 ---
 
-### 4. Channel 抽象层
-
-**背景**：cc2im 目前是"微信专用网关"，需要升级为多 channel 架构。
-
-**核心概念**：Channel = 平台实例（不是平台类型）。可以有多个微信 channel 实例（你的微信、家人的微信）。
-
-**设计文档**：`docs/plans/2026-03-27-channel-abstraction.md`
-
-**来源**：2026-03-27 架构讨论
-
----
-
-### 5. 权限管理体系
+### 3. 权限管理体系
 
 **背景**：多用户场景下需要细粒度权限控制。
 
