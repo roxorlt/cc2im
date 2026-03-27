@@ -104,9 +104,9 @@ export function createJob(
 }
 
 export function deleteJob(id: string): boolean {
-  const result = openCronDb()
-    .prepare('DELETE FROM cron_jobs WHERE id = ?')
-    .run(id)
+  const d = openCronDb()
+  d.prepare('DELETE FROM cron_runs WHERE job_id = ?').run(id)
+  const result = d.prepare('DELETE FROM cron_jobs WHERE id = ?').run(id)
   return result.changes > 0
 }
 

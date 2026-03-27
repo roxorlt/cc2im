@@ -77,6 +77,14 @@ export interface SpokeToHubManagement {
     name?: string
     cwd?: string
     claudeArgs?: string[]
+    // cron fields
+    scheduleType?: 'cron' | 'once' | 'interval'
+    scheduleValue?: string
+    timezone?: string
+    agentId?: string
+    message?: string
+    jobId?: string
+    enabled?: boolean
   }
 }
 

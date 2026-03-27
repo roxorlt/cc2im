@@ -188,8 +188,11 @@ async function handleManagement(
       const tmpSched = new Sched(ctx)
       const nextRun = tmpSched.calcNextRun(p.scheduleType!, p.scheduleValue!, p.timezone || 'Asia/Shanghai')
 
-      if (!nextRun && p.scheduleType !== 'once') {
-        result = { success: false, error: `Invalid schedule: ${p.scheduleType} "${p.scheduleValue}"` }
+      if (!nextRun) {
+        const errMsg = p.scheduleType === 'once'
+          ? 'Once schedule is in the past'
+          : `Invalid schedule: ${p.scheduleType} "${p.scheduleValue}"`
+        result = { success: false, error: errMsg }
         break
       }
 

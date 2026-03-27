@@ -111,7 +111,7 @@ export class CronScheduler {
     const delivered = this.ctx.deliverToAgent(job.agentId, msg)
     const status = delivered ? 'delivered' as const : 'queued' as const
 
-    recordRun(job.id, status)
+    recordRun(job.id, status, delivered ? undefined : 'agent offline, queued for replay')
     console.log(`[cron] fired job "${job.name}" → ${job.agentId} (${status})`)
 
     // Recalculate next run
