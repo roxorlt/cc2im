@@ -288,11 +288,10 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
         res.end('{"error":"no hub context"}')
         return
       }
-      if (!ctx.getChannel(channelId)) {
-        res.writeHead(404, { 'Content-Type': 'application/json' })
-        res.end('{"error":"channel not found"}')
-        return
-      }
+      // Note: we intentionally don't check ctx.getChannel(channelId) here.
+      // The channel:add listener is async (dynamic import) and may not have
+      // registered the channel yet. QR login only needs to fetch a QR code
+      // and poll; reconnectChannel (called on confirmed) will find it by then.
 
       ;(async () => {
         try {
@@ -311,8 +310,16 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
           // Broadcast initial QR status to browser
           broadcastWs({ type: 'qr_status', channelId, status: 'pending' as QrStatus, qrUrl: qr.qrUrl })
 
-          // Start background polling
+          // Start background polling (auto-expire after 10 minutes as safety net)
+          const pollStart = Date.now()
+          const MAX_POLL_MS = 10 * 60 * 1000
           const poll = setInterval(async () => {
+            if (Date.now() - pollStart > MAX_POLL_MS) {
+              clearInterval(poll)
+              activeQrPolls.delete(channelId)
+              broadcastWs({ type: 'qr_status', channelId, status: 'expired', qrUrl: qr.qrUrl })
+              return
+            }
             try {
               const result = await checkQrStatus(qr.qrToken)
               broadcastWs({ type: 'qr_status', channelId, status: result.status, qrUrl: qr.qrUrl })
