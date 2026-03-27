@@ -36,6 +36,7 @@ export class WeixinConnection {
   private bot = new WeixinBot()
   private recentMessages = new Map<string, any>() // userId -> raw msg for reply
   private onIncoming: OnMessageCallback | null = null
+  private listening = false
 
   setMessageHandler(handler: OnMessageCallback) {
     this.onIncoming = handler
@@ -83,7 +84,10 @@ export class WeixinConnection {
       throw new Error('未找到微信登录凭证! 请先运行: cc2im login')
     }
 
-    // Write per-channel creds to the global path so the SDK picks them up
+    // Write per-channel creds to the global path so the SDK picks them up.
+    // TODO: Race condition if two channels call login() concurrently — channel B
+    // could overwrite the global file before channel A's bot.login() reads it.
+    // Currently safe because channel-manager starts channels sequentially.
     writeFileSync(CRED_PATH, JSON.stringify(channelCreds, null, 2) + '\n', { mode: 0o600 })
 
     console.log('[hub] 使用已保存的凭证登录微信...')
@@ -99,6 +103,9 @@ export class WeixinConnection {
   }
 
   startListening() {
+    if (this.listening) return
+    this.listening = true
+
     // Clean up expired media on startup + every 6 hours
     cleanupMedia()
     setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
@@ -143,6 +150,13 @@ export class WeixinConnection {
   async startPolling() {
     console.log('[hub] 开始监听微信消息...')
     await this.bot.run()
+  }
+
+  /** Stop the polling loop and clear the message handler so reconnect starts clean. */
+  stop() {
+    this.bot.stop()
+    this.listening = false
+    this.onIncoming = null
   }
 
   async startTyping(userId: string) {

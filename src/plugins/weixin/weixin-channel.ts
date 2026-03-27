@@ -60,6 +60,7 @@ export class WeixinChannel implements Cc2imChannel {
 
   async disconnect(): Promise<void> {
     this.weixin.saveContextCache()
+    this.weixin.stop()
     this.setStatus('disconnected')
   }
 
