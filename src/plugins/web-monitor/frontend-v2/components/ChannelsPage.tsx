@@ -5,6 +5,7 @@ interface ChannelsPageProps {
   channels: ChannelInfo[]
   showAddDialog: boolean
   onCloseAddDialog: () => void
+  onRefreshChannels: () => void
 }
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -20,7 +21,7 @@ const btnStyle: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',
 }
 
-function ChannelCard({ channel }: { channel: ChannelInfo }) {
+function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onRefreshChannels: () => void }) {
   const status = statusLabels[channel.status] || statusLabels.disconnected
   const [probing, setProbing] = useState(false)
   const [probeResult, setProbeResult] = useState<string | null>(null)
@@ -49,7 +50,8 @@ function ChannelCard({ channel }: { channel: ChannelInfo }) {
 
   const handleDelete = async () => {
     try {
-      await fetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' })
+      const res = await fetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' })
+      if (res.ok) onRefreshChannels()
     } catch (err) {
       console.error('Delete failed:', err)
     }
@@ -190,7 +192,7 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog }: ChannelsPageProps) {
+export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefreshChannels }: ChannelsPageProps) {
   return (
     <div style={{ flex: 1, padding: '20px 24px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -209,7 +211,7 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog }: Chan
             暂无频道，点击侧栏「+ 新增频道」添加
           </div>
         ) : (
-          channels.map(ch => <ChannelCard key={ch.id} channel={ch} />)
+          channels.map(ch => <ChannelCard key={ch.id} channel={ch} onRefreshChannels={onRefreshChannels} />)
         )}
       </div>
     </div>

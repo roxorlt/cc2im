@@ -42,9 +42,17 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
 }
 
 export function App() {
-  const { agents, hubConnected, wsConnected, messages, logs, channels, nicknames, setNicknames } = useWebSocket()
+  const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames } = useWebSocket()
   const tokenStats = useTokens()
   const usageStats = useUsage()
+
+  const refreshChannels = async () => {
+    try {
+      const res = await fetch('/api/channels')
+      const list = await res.json()
+      setChannels(list)
+    } catch {}
+  }
 
   const [page, setPage] = useState<Page>('chat')
   const [selected, setSelected] = useState<string | null>(null)
@@ -162,6 +170,7 @@ export function App() {
             channels={channels}
             showAddDialog={showAddChannel}
             onCloseAddDialog={() => setShowAddChannel(false)}
+            onRefreshChannels={refreshChannels}
           />
         )}
       </div>
