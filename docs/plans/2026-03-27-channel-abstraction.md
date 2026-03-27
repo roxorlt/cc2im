@@ -32,52 +32,79 @@ Hub (185行)
 - Dashboard 无 channel 状态展示
 - 无法添加第二个 IM 平台
 
-### 1.2 目标架构
+### 1.2 核心概念修正：Channel = 平台实例
+
+**Channel 不是平台类型，是平台实例。** 可以有多个同类型的 channel 实例：
+
+```
+示例：
+  weixin-roxor     (你的微信 bot 账号)
+  weixin-family    (家人的微信 bot 账号，独立二维码)
+  telegram-main    (Telegram bot)
+```
+
+这意味着：
+- 同一平台类型可以多开（多个微信号）
+- 每个实例有独立的 session、QR 码、用户池
+- 用例：你扫你的码，家人扫家人的码，各自对话同一批 agent
+
+参考 OpenClaw 的 `accounts/` 多账号模型。
+
+### 1.3 目标架构
 
 ```
 Hub
   ├── PluginManager (不变)
   │     ├── persistence
-  │     ├── channel-manager (新) — 管理所有 channel 的生命周期
-  │     │     ├── WeixinChannel implements Cc2imChannel
-  │     │     ├── TelegramChannel implements Cc2imChannel (未来)
-  │     │     └── SlackChannel implements Cc2imChannel (未来)
-  │     └── web-monitor (Dashboard + channel 管理页)
+  │     ├── channel-manager (新) — 管理所有 channel 实例的生命周期
+  │     │     ├── weixin-roxor    (WeixinChannel 实例 1)
+  │     │     ├── weixin-family   (WeixinChannel 实例 2)
+  │     │     ├── telegram-main   (TelegramChannel 实例, 未来)
+  │     │     └── ...
+  │     └── web-monitor (Dashboard)
+  │           ├── Channel 管理页 — 连接状态、新增/删除、QR 重登
+  │           └── 对话管理页 — Agent 列表 + 消息流（标注 channel:user）
   │
   ├── AgentManager (不变)
   │     ├── brain, 主线, geo, xq, KaaS
   │
   ├── Router (扩展)
   │     ├── @mention → agent (保留)
-  │     └── channel:user → defaultAgent 映射 (新)
+  │     └── channel → defaultAgent 映射 (新)
   │
   └── SocketServer (不变)
 ```
 
-### 1.3 Channel 接口设计
+### 1.4 Channel 接口设计
 
-借鉴 NanoClaw 的简洁风格，结合 cc2im 的多 agent 需求：
+借鉴 NanoClaw 的简洁风格，结合 cc2im 的多实例需求：
 
 ```typescript
 // src/shared/channel.ts
 
 export type ChannelStatus = 'connected' | 'disconnected' | 'expired' | 'connecting'
 
+/** Channel 类型，决定 UI 图标和平台特有逻辑 */
+export type ChannelType = 'weixin' | 'telegram' | 'slack' | 'discord'
+
 export interface IncomingChannelMessage {
-  channelId: string         // "weixin", "telegram"
+  channelId: string         // 实例 ID: "weixin-roxor"
+  channelType: ChannelType  // 平台类型: "weixin"
   userId: string            // 平台原生用户 ID
   text?: string
   type: 'text' | 'image' | 'video' | 'voice' | 'file'
   mediaPath?: string
   voiceText?: string
   timestamp: Date
-  raw?: any                 // 平台原始消息
+  raw?: any
 }
 
 export interface Cc2imChannel {
-  /** 唯一标识，如 "weixin", "telegram" */
+  /** 实例 ID，如 "weixin-roxor", "weixin-family" */
   readonly id: string
-  /** 显示名，如 "微信", "Telegram" */
+  /** 平台类型，如 "weixin", "telegram"。决定 UI 图标和分组 */
+  readonly type: ChannelType
+  /** 显示名，如 "roxor·微信", "家人·微信" */
   readonly label: string
 
   // --- 生命周期 ---
@@ -99,35 +126,53 @@ export interface Cc2imChannel {
 }
 ```
 
-### 1.4 关键设计决策
+### 1.5 关键设计决策
 
 **Q: Agent 和 Channel 的关系？**
-A: **N:N**。任何 agent 都可以通过任何 channel 收发消息。路由规则：
+A: **N:N**。任何 agent 可通过任何 channel 收发消息。路由规则：
 - 用户 @mention 了 agent → 路由到指定 agent
-- 没有 @mention → 按 channel 配置的 `defaultAgent` 路由
-- 例：微信默认 → brain，Telegram 默认 → geo
+- 没有 @mention → 按 channel 实例配置的 `defaultAgent` 路由
+- 例：`weixin-roxor` 默认 → brain，`weixin-family` 默认 → brain（或限定可用 agent）
 
-**Q: 用户 ID 跨 channel 如何隔离？**
+**Q: 用户 ID 如何全局唯一？**
 A: 内部用 `{channelId}:{platformUserId}` 作为全局唯一 ID。
-- 微信用户 `o9cq80y...` → `weixin:o9cq80y...`
-- Telegram 用户 `123456` → `telegram:123456`
+- `weixin-roxor:o9cq80y...` 和 `weixin-family:o9cq80y...` 是同一个人但不同 channel 实例的身份
 - 消息持久化和 context token 都按此 key 隔离
 
-**Q: Dashboard 如何展示 channel？**
-A: 左侧边栏增加 channel 层级：
+**Q: Dashboard 如何展示？**
+A: **两个独立视角**，不嵌套：
+
 ```
-Channels
-  ├── 微信 ● (connected)
-  │     └── Agent 列表 (共享现有的)
-  ├── Telegram ○ (disconnected)
-  ...
+Channel 管理页（运维视角）：
+  ├── weixin-roxor    ● connected    [断开] [QR 重登]
+  ├── weixin-family   ○ disconnected [连接]
+  └── [+ 新增 Channel]
+
+对话管理页（业务视角，现有主页面）：
+  ├── 左侧: Agent 列表 (不变)
+  └── 右侧: MessageFlow
+        每条消息标注来源: [roxor·微信] user_A → brain
+                         [家人·微信] user_B → brain
+        顶部: channel 筛选下拉 (全部 / weixin-roxor / weixin-family)
 ```
 
-**Q: 权限管理放哪？**
-A: 保持在 channel plugin 内。不同 channel 的权限交互方式不同（微信回复 yes/no，Telegram inline button），不适合抽象。
+**Q: 消息流中如何标注 channel:user？**
+A: 气泡上显示 **channel 短名 + 用户昵称**（非原始 ID）。
+- 用户昵称来源：dashboard 手动设别名 / 微信昵称 / 首次对话时 agent 询问
+- 原始 ID 仅在筛选器和管理页展示
+
+**Q: 权限管理？**
+A: 独立 TODO（#5），不在本次 channel 抽象中处理。涉及：
+- 用户角色（admin/member/guest）
+- Agent 访问控制（哪些 user 可以用哪些 agent）
+- Permission 审批路由（所有审批发给管理员）
+- 需要先调研 OpenClaw/NanoClaw 的权限模型
 
 **Q: Session 过期如何处理？**
-A: Channel 通过 `onStatusChange('expired')` 通知。channel-manager 插件广播 monitor 事件，Dashboard 展示警告 + QR 码（微信特有）。
+A: Channel 通过 `onStatusChange('expired')` 通知。ChannelManager 广播 monitor 事件，Dashboard 在 Channel 管理页展示警告 + QR 码（微信特有）。
+
+**Q: 动态添加/删除 channel 实例？**
+A: ChannelManager 支持运行时增删。Dashboard Channel 管理页点"新增微信 Channel" → 生成新的 WeixinChannel 实例 → 展示 QR 码 → 扫码连接。配置持久化到 `~/.cc2im/channels.json`。
 
 ### 1.5 与现有代码的兼容策略
 
