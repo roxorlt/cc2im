@@ -21,10 +21,12 @@ const btnStyle: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',
 }
 
-function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onRefreshChannels: () => void }) {
+function ChannelCard({ channel, isLast, onRefreshChannels }: { channel: ChannelInfo; isLast: boolean; onRefreshChannels: () => void }) {
   const status = statusLabels[channel.status] || statusLabels.disconnected
   const [probing, setProbing] = useState(false)
   const [probeResult, setProbeResult] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const handleProbe = async () => {
     setProbing(true)
@@ -41,19 +43,25 @@ function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onR
   }
 
   const handleDisconnect = async () => {
+    setDisconnecting(true)
     try {
       await fetch(`/api/channels/${encodeURIComponent(channel.id)}/disconnect`, { method: 'POST' })
     } catch (err) {
       console.error('Disconnect failed:', err)
+    } finally {
+      setDisconnecting(false)
     }
   }
 
   const handleDelete = async () => {
+    setDeleting(true)
     try {
       const res = await fetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' })
       if (res.ok) onRefreshChannels()
     } catch (err) {
       console.error('Delete failed:', err)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -101,10 +109,14 @@ function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onR
           {probing ? '检查中...' : '检查连接'}
         </button>
         {channel.status === 'connected' && (
-          <button onClick={handleDisconnect} style={{ ...btnStyle, color: 'var(--red)' }}>断开</button>
+          <button onClick={handleDisconnect} disabled={disconnecting} style={{ ...btnStyle, color: 'var(--red)' }}>
+            {disconnecting ? '断开中...' : '断开'}
+          </button>
         )}
-        {(channel.status === 'disconnected' || channel.status === 'expired') && (
-          <button onClick={handleDelete} style={{ ...btnStyle, color: 'var(--red)' }}>删除</button>
+        {!isLast && (channel.status === 'disconnected' || channel.status === 'expired') && (
+          <button onClick={handleDelete} disabled={deleting} style={{ ...btnStyle, color: 'var(--red)' }}>
+            {deleting ? '删除中...' : '删除'}
+          </button>
         )}
       </div>
     </div>
@@ -242,7 +254,7 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefr
             暂无频道，点击侧栏「+ 新增频道」添加
           </div>
         ) : (
-          channels.map(ch => <ChannelCard key={ch.id} channel={ch} onRefreshChannels={onRefreshChannels} />)
+          channels.map(ch => <ChannelCard key={ch.id} channel={ch} isLast={channels.length <= 1} onRefreshChannels={onRefreshChannels} />)
         )}
       </div>
     </div>
