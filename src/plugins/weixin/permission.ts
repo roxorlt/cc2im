@@ -1,11 +1,18 @@
 /**
- * Permission state management for WeChat-based approval flow.
- * Extracted from hub/index.ts — tracks pending permission requests
- * and matches incoming WeChat messages as verdicts.
+ * Permission state management for channel-based approval flow.
+ * Tracks pending permission requests and matches incoming messages as verdicts.
+ *
+ * Channel-agnostic: accepts a sendFn callback for sending prompts,
+ * and a UserRef map for resolving target users.
  */
 
 import type { HubContext } from '../../shared/plugin.js'
-import type { WeixinConnection } from './connection.js'
+
+/** Identifies a user on a specific channel */
+export interface UserRef {
+  userId: string
+  channelId: string
+}
 
 interface PendingPermission {
   requestId: string
@@ -26,11 +33,14 @@ export class PermissionManager {
     agentId: string,
     msg: { requestId: string; toolName: string; description: string; inputPreview: string; userId?: string },
     ctx: HubContext,
-    weixin: WeixinConnection,
-    lastUserByAgent: Map<string, string>,
-    lastGlobalUser: string | null,
+    sendFn: (userId: string, text: string) => Promise<void>,
+    lastUserByAgent: Map<string, UserRef>,
+    lastGlobalUser: UserRef | null,
   ) {
-    const targetUserId = msg.userId || lastUserByAgent.get(agentId) || lastGlobalUser
+    const ref = msg.userId
+      ? { userId: msg.userId, channelId: lastUserByAgent.get(agentId)?.channelId || lastGlobalUser?.channelId || '' }
+      : lastUserByAgent.get(agentId) || lastGlobalUser
+    const targetUserId = ref?.userId
     if (!targetUserId) {
       console.log(`[hub] No user to forward permission request to`)
       return
@@ -63,7 +73,7 @@ export class PermissionManager {
     ].join('\n')
 
     ctx.broadcastMonitor({ kind: 'permission_request', agentId, toolName: msg.toolName, timestamp: new Date().toISOString() })
-    await weixin.send(targetUserId, prompt)
+    await sendFn(targetUserId, prompt)
   }
 
   /** Try to match an incoming WeChat message as a permission verdict. Returns true if handled. */

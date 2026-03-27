@@ -2,6 +2,7 @@ import type { EventEmitter } from 'node:events'
 import type { AgentManager } from '../hub/agent-manager.js'
 import type { Router } from '../hub/router.js'
 import type { AgentsConfig, HubToSpoke, HubEventData } from './types.js'
+import type { Cc2imChannel } from './channel.js'
 
 /** Hub services and events available to plugins */
 export interface HubContext extends EventEmitter {
@@ -11,6 +12,13 @@ export interface HubContext extends EventEmitter {
   getAgentManager(): AgentManager
   getRouter(): Router
   getConfig(): AgentsConfig
+
+  /** Register a channel (called by ChannelManager during init) */
+  registerChannel(channel: Cc2imChannel): void
+  /** Look up a channel by its instance ID */
+  getChannel(channelId: string): Cc2imChannel | undefined
+  /** Get all registered channels */
+  getChannels(): Cc2imChannel[]
 }
 
 /** Plugin definition */

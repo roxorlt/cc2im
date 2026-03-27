@@ -10,7 +10,8 @@ import { AgentManager } from './agent-manager.js'
 import { HubContextImpl } from './hub-context.js'
 import { PluginManager } from './plugin-manager.js'
 import { createPersistencePlugin } from '../plugins/persistence/index.js'
-import { createWeixinPlugin } from '../plugins/weixin/index.js'
+import { WeixinChannel } from '../plugins/weixin/weixin-channel.js'
+import { createChannelManagerPlugin } from '../plugins/channel-manager/index.js'
 import { createWebMonitorPlugin } from '../plugins/web-monitor/index.js'
 import { SOCKET_DIR } from '../shared/socket.js'
 import type { AgentsConfig, SpokeToHub } from '../shared/types.js'
@@ -70,8 +71,9 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
 
   ctx = new HubContextImpl(socketServer, agentManager, router, config)
   const pluginManager = new PluginManager()
+  const channels = [new WeixinChannel()]
   pluginManager.register(createPersistencePlugin())
-  pluginManager.register(createWeixinPlugin())
+  pluginManager.register(createChannelManagerPlugin(channels))
   pluginManager.register(createWebMonitorPlugin())
 
   // --- Start ---

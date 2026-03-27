@@ -5,8 +5,11 @@ import type { AgentManager } from './agent-manager.js'
 import type { Router } from './router.js'
 import type { HubContext } from '../shared/plugin.js'
 import type { AgentsConfig, HubToSpoke, HubEventData } from '../shared/types.js'
+import type { Cc2imChannel } from '../shared/channel.js'
 
 export class HubContextImpl extends EventEmitter implements HubContext {
+  private channels = new Map<string, Cc2imChannel>()
+
   constructor(
     private socketServer: HubSocketServer,
     private agentManager: AgentManager,
@@ -42,5 +45,17 @@ export class HubContextImpl extends EventEmitter implements HubContext {
 
   getConfig(): AgentsConfig {
     return this.config
+  }
+
+  registerChannel(channel: Cc2imChannel): void {
+    this.channels.set(channel.id, channel)
+  }
+
+  getChannel(channelId: string): Cc2imChannel | undefined {
+    return this.channels.get(channelId)
+  }
+
+  getChannels(): Cc2imChannel[] {
+    return Array.from(this.channels.values())
   }
 }
