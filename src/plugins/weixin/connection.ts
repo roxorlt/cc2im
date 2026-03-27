@@ -165,7 +165,7 @@ export class WeixinConnection {
   /** Upload a local image and send it as an image message. */
   async sendImage(userId: string, filePath: string): Promise<void> {
     const { baseUrl, token, contextToken } = await this.getBotCredentials(userId)
-    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'image', baseUrl, token)
+    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'image', baseUrl, token, userId)
 
     const msg = {
       from_user_id: '',
@@ -190,7 +190,7 @@ export class WeixinConnection {
   /** Upload a local file and send it as a file message. */
   async sendFile(userId: string, filePath: string): Promise<void> {
     const { baseUrl, token, contextToken } = await this.getBotCredentials(userId)
-    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'file', baseUrl, token)
+    const { cdnMedia, rawSize } = await uploadMedia(filePath, 'file', baseUrl, token, userId)
 
     const msg = {
       from_user_id: '',

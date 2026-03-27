@@ -7,8 +7,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { randomBytes } from 'node:crypto'
-import { createCipheriv } from 'node:crypto'
+import { randomBytes, createCipheriv, createHash } from 'node:crypto'
 import type { CDNMedia } from '@pinixai/weixin-bot'
 
 // ── helpers (not re-exported by the SDK's main entry) ────────────
@@ -100,21 +99,26 @@ export async function uploadMedia(
   mediaType: 'image' | 'video' | 'file',
   baseUrl: string,
   token: string,
+  toUserId: string,
 ): Promise<UploadResult> {
   // 1. Read & encrypt
   const plain = readFileSync(filePath)
   const aesKeyHex = generateAesKeyHex()
   const encrypted = encryptAes128Ecb(plain, aesKeyHex)
   const filekey = randomBytes(16).toString('hex')
+  const rawfilemd5 = createHash('md5').update(plain).digest('hex')
 
   // 2. Get upload URL
-  const body: GetUploadUrlReq = {
+  const body = {
     filekey,
     media_type: MEDIA_TYPE_MAP[mediaType],
+    to_user_id: toUserId,
     rawsize: plain.length,
+    rawfilemd5,
     filesize: encrypted.length,
     aeskey: aesKeyHex,
     no_need_thumb: true,
+    base_info: { channel_version: '1.0.0' },
   }
 
   const normalizedBase = baseUrl.replace(/\/+$/, '')
@@ -142,8 +146,9 @@ export async function uploadMedia(
   }
 
   // 3. Upload encrypted payload to CDN
+  const cdnBase = uploadInfo.upload_url || 'https://novac2c.cdn.weixin.qq.com/c2c/upload'
   const cdnUrl =
-    `${uploadInfo.upload_url}?encrypted_query_param=${encodeURIComponent(uploadInfo.upload_param)}&filekey=${filekey}`
+    `${cdnBase}?encrypted_query_param=${encodeURIComponent(uploadInfo.upload_param)}&filekey=${filekey}`
 
   const cdnResp = await fetch(cdnUrl, {
     method: 'POST',
