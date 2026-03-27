@@ -277,13 +277,9 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
             saveChannelConfigs(configs)
           }
 
-          // Connect
-          try {
-            await ch.connect()
-            console.log(`[channel-manager] ${ch.label} connected (runtime add)`)
-          } catch (err: any) {
-            console.error(`[channel-manager] ${ch.label} connect failed: ${err.message}`)
-          }
+          // Don't auto-connect — wait for QR login to provide credentials
+          // Connection will be triggered by reconnectChannel after QR confirmed
+          console.log(`[channel-manager] Channel "${channelId}" created (awaiting login)`)
         } else {
           console.warn(`[channel-manager] Unknown channel type: ${type}`)
         }
