@@ -50,9 +50,13 @@ export class CronScheduler {
   ): string | null {
     switch (type) {
       case 'cron': {
-        const job = new Cron(value, { timezone })
-        const next = job.nextRun()
-        return next ? next.toISOString() : null
+        try {
+          const job = new Cron(value, { timezone })
+          const next = job.nextRun()
+          return next ? next.toISOString() : null
+        } catch {
+          return null
+        }
       }
       case 'once': {
         const d = new Date(value)
