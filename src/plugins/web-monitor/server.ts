@@ -486,7 +486,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
   }
 }
 
-export async function startWeb(options: { port: number; ctx?: HubContext }) {
+export async function startWeb(options: { port: number; ctx?: HubContext }): Promise<{ shutdown: () => void }> {
   const { port, ctx } = options
   const host = '127.0.0.1'
 
@@ -673,15 +673,14 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
     console.log(`[web] Hub: ${monitor.isConnected() ? 'connected' : 'connecting...'}`)
   })
 
-  // Graceful shutdown
-  const shutdown = () => {
-    console.log('[web] Shutting down...')
-    logTailer.stop()
-    monitor.disconnect()
-    wss.close()
-    httpServer.close()
-    process.exit(0)
+  // Return shutdown handle — caller manages when to invoke
+  return {
+    shutdown() {
+      console.log('[web] Shutting down...')
+      logTailer.stop()
+      monitor.disconnect()
+      wss.close()
+      httpServer.close()
+    },
   }
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
 }
