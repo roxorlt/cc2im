@@ -64,11 +64,7 @@ export class HubContextImpl extends EventEmitter implements HubContext {
   }
 
   async removeChannel(channelId: string): Promise<void> {
-    const ch = this.channels.get(channelId)
-    if (ch) {
-      await ch.disconnect()
-      this.channels.delete(channelId)
-    }
+    this.channels.delete(channelId)
     this.emit('channel:remove', channelId)
   }
 }
