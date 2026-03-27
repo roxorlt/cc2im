@@ -15,7 +15,9 @@
   "scripts": {
     "build": "tsc",
     "dev:hub": "npx tsx src/hub/index.ts",
-    "dev:spoke": "npx tsx src/spoke/index.ts"
+    "dev:spoke": "npx tsx src/spoke/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -37,6 +39,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "typescript": "^5.9.3",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "vitest": "^4.1.2"
   }
 }

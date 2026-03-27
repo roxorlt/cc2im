@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; echo \"$f\" | grep -qE '/src/.*\\.ts$' && echo \"$f\" | grep -qvE '__tests__' && npm test -- --reporter=dot src/__tests__/router.test.ts src/__tests__/chunker.test.ts src/__tests__/frame-parser.test.ts; } 2>/dev/null || true",
+            "timeout": 30,
+            "statusMessage": "Running unit tests..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit:*)",
+            "command": "OUTPUT=$(npm test 2>&1); EXIT=$?; echo \"$OUTPUT\" | tail -5; if [ $EXIT -ne 0 ]; then printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Tests failed — fix before committing\"}}'; fi",
+            "timeout": 60,
+            "statusMessage": "Running full test suite before commit..."
+          }
+        ]
+      }
+    ]
+  }
+}
