@@ -70,7 +70,8 @@ function computeTokenStats(): TokenStats {
             const rec = JSON.parse(line)
             const u = rec.message?.usage
             if (!u) continue
-            const date = rec.timestamp?.slice(0, 10)
+            // Use local date (not UTC) so "today" matches user's midnight
+            const date = rec.timestamp ? new Date(rec.timestamp).toLocaleDateString('sv-SE') : null
             if (!date) continue
 
             const d = daily.get(date) || { date, input: 0, output: 0, cacheRead: 0, cacheCreate: 0 }
@@ -95,7 +96,7 @@ function computeTokenStats(): TokenStats {
     d.cost = (d.input * p.input + d.output * p.output + d.cacheRead * p.cacheRead + d.cacheCreate * p.cacheCreate) / 1_000_000
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('sv-SE')
   const todayData = sorted.find(d => d.date === today)
   const last30 = sorted.slice(-30)
   const totalCost = last30.reduce((s, d) => s + (d.cost || 0), 0)
