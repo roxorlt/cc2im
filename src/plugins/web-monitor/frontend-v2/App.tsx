@@ -6,6 +6,7 @@ import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { MessageFlow } from './components/MessageFlow'
 import { LogViewer } from './components/LogViewer'
+import { ChannelsPage } from './components/ChannelsPage'
 
 type Page = 'chat' | 'channels'
 
@@ -49,6 +50,24 @@ export function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
   const [showAddChannel, setShowAddChannel] = useState(false)
+  const [channelFilter, setChannelFilter] = useState<string | null>(null)
+
+  const handleSetNickname = async (channelId: string, userId: string, nickname: string) => {
+    try {
+      await fetch(`/api/nicknames/${encodeURIComponent(channelId)}/${encodeURIComponent(userId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname }),
+      })
+      setNicknames(prev => {
+        const next = new Map(prev)
+        next.set(`${channelId}:${userId}`, nickname)
+        return next
+      })
+    } catch (err) {
+      console.error('Failed to set nickname:', err)
+    }
+  }
 
   const activeAgent = selected || agents[0]?.name || null
 
@@ -90,6 +109,24 @@ export function App() {
                     {t.label}
                   </button>
                 ))}
+                {/* Channel filter */}
+                <select
+                  value={channelFilter || ''}
+                  onChange={e => setChannelFilter(e.target.value || null)}
+                  style={{
+                    background: 'var(--bg-deep)', border: '1px solid var(--border)',
+                    borderRadius: 4, padding: '4px 8px',
+                    fontSize: 10, color: 'var(--text-dim)',
+                    fontFamily: 'var(--font-mono)',
+                    outline: 'none', cursor: 'pointer',
+                    marginLeft: 8,
+                  }}
+                >
+                  <option value="">全部频道</option>
+                  {channels.map(ch => (
+                    <option key={ch.id} value={ch.id}>{ch.label}</option>
+                  ))}
+                </select>
                 <div style={{
                   marginLeft: 'auto', padding: '10px 16px',
                   fontSize: 10, color: 'var(--text-muted)',
@@ -101,7 +138,13 @@ export function App() {
               </div>
 
               {tab === 'messages'
-                ? <MessageFlow messages={messages} agentId={activeAgent} />
+                ? <MessageFlow
+                    messages={messages}
+                    agentId={activeAgent}
+                    channelFilter={channelFilter}
+                    nicknames={nicknames}
+                    onSetNickname={handleSetNickname}
+                  />
                 : <LogViewer logs={logs} source={activeAgent} />
               }
             </div>
@@ -115,14 +158,11 @@ export function App() {
             </div>
           )
         ) : (
-          /* Channels page placeholder — will be replaced by ChannelsPage in Task 8 */
-          <div style={{
-            flex: 1, display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center', gap: 12,
-          }}>
-            <span style={{ fontSize: 36, color: 'var(--text-muted)', opacity: 0.2 }}>📡</span>
-            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Channels 管理页（Task 8 实现）</span>
-          </div>
+          <ChannelsPage
+            channels={channels}
+            showAddDialog={showAddChannel}
+            onCloseAddDialog={() => setShowAddChannel(false)}
+          />
         )}
       </div>
 
