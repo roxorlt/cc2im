@@ -153,6 +153,35 @@ export async function startWeb(options: { port: number }) {
       return
     }
 
+    // Serve media files from ~/.cc2im/media/
+    if (url.pathname.startsWith('/media/')) {
+      const filename = url.pathname.slice('/media/'.length)
+      // Security: reject path traversal
+      if (!filename || filename.includes('/') || filename.includes('..') || filename.includes('\\')) {
+        res.writeHead(400)
+        res.end('Bad request')
+        return
+      }
+      const mediaDir = join(SOCKET_DIR, 'media')
+      const filePath = join(mediaDir, filename)
+      if (!existsSync(filePath)) {
+        res.writeHead(404)
+        res.end('Not found')
+        return
+      }
+      const ext = filename.split('.').pop() || ''
+      const mediaMime: Record<string, string> = {
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+        webp: 'image/webp', mp4: 'video/mp4', pdf: 'application/pdf', bin: 'application/octet-stream',
+      }
+      res.writeHead(200, {
+        'Content-Type': mediaMime[ext] || 'application/octet-stream',
+        'Cache-Control': 'public, max-age=86400',
+      })
+      res.end(readFileSync(filePath))
+      return
+    }
+
     if (url.pathname === '/api/messages') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       const agentId = url.searchParams.get('agent')
@@ -181,6 +210,7 @@ export async function startWeb(options: { port: number }) {
     const mimeTypes: Record<string, string> = {
       html: 'text/html', js: 'application/javascript', css: 'text/css',
       json: 'application/json', svg: 'image/svg+xml', png: 'image/png',
+      jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
     }
     res.writeHead(200, { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' })
     res.end(readFileSync(filePath))

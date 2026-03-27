@@ -3,30 +3,15 @@
 ## 已完成
 
 - ~~Zombie spoke 修复~~ — hub-side SIGTERM + spoke 多重退出检测 + 自动重启 (2026-03-26)
-- ~~插件架构重构~~ — 核心 185 行 + weixin/web-monitor 两个插件 (2026-03-26)
+- ~~插件架构重构~~ — 核心 185 行 + weixin/web-monitor/persistence 三个插件 (2026-03-26)
 - ~~成本 + 用量指标~~ — 等值 API 成本、5h/7d 用量占比、pricing.json (2026-03-26)
 - ~~v1 frontend 清理~~ — 删除 517 行旧代码 (2026-03-26)
+- ~~消息持久化 + 离线投递~~ — SQLite WAL + deliver:before/after 事件 + agent:online 重放 + context token 持久化 (2026-03-26)
+- ~~Dashboard 日志增强~~ — 时间戳提取、error/warn 颜色编码、滚动行为优化 (2026-03-26)
 
 ## 待讨论 / 待规划
 
-### 1. 消息持久化 + 离线投递
-
-**背景**：对比 NanoClaw（用 SQLite 存所有消息，agent 重连后能看到历史），cc2im 目前 spoke 断连时消息直接丢弃。
-
-**痛点**：
-- spoke 断连期间的消息永久丢失，用户不知情
-- zombie-spoke 自动重启场景下，重启期间（~5s）的消息也会丢
-
-**方案方向**：
-- Hub 加一层轻量消息队列（SQLite 即可）
-- spoke 重连后投递积压消息
-- 可选：消息 TTL，超时自动清理
-
-**来源**：2026-03-25 对比 NanoClaw 讨论
-
----
-
-### 2. Dashboard 渲染媒体文件
+### 1. Dashboard 渲染媒体文件
 
 **背景**：目前 dashboard 对图片/视频/语音消息只显示纯文本路径（如 `(image 已下载到 /path)`），没有富媒体预览。
 
@@ -45,7 +30,7 @@
 
 ---
 
-### 3. Hub 层定时任务调度
+### 2. Hub 层定时任务调度
 
 **背景**：CC 的 CronCreate 是进程内调度器，CC 重启后定时任务全丢。用户通过微信设的定时任务（如「每天 11:35 重启雪球服务」）无法在 agent 重启后幸存。
 
@@ -60,6 +45,19 @@
 **依赖**：#1 消息持久化 + SQLite
 
 **来源**：2026-03-26 zombie-spoke 修复后讨论
+
+---
+
+### 3. macOS 桌面小组件
+
+**背景**：将 cc2im 关键状态暴露为 macOS Widget，无需打开浏览器即可一瞥 agent 状态、用量、消息概览。
+
+**可能方向**：
+- SwiftUI WidgetKit 原生小组件
+- 数据源：hub HTTP API（`/api/agents`、`/api/usage`、`/api/stats`）
+- 尺寸：small（agent 在线状态）、medium（+ 用量条）、large（+ 最近消息摘要）
+
+**待讨论**：技术选型、刷新频率、是否需要独立 Xcode 项目
 
 ---
 

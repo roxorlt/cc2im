@@ -42,6 +42,9 @@ function detectExt(buf: Buffer): string {
   if (buf[0] === 0x89 && buf[1] === 0x50) return 'png'
   if (buf[0] === 0x47 && buf[1] === 0x49) return 'gif'
   if (buf[0] === 0x52 && buf[1] === 0x49) return 'webp'
+  // MP4/MOV: ftyp box at offset 4
+  if (buf.length >= 8 && buf[4] === 0x66 && buf[5] === 0x74 && buf[6] === 0x79 && buf[7] === 0x70) return 'mp4'
+  if (buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46) return 'pdf'
   return 'bin'
 }
 

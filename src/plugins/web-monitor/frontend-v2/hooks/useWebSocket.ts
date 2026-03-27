@@ -18,6 +18,8 @@ export interface HubEventData {
   toolName?: string
   behavior?: string
   code?: number
+  msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
+  mediaUrl?: string   // '/media/{filename}'
 }
 
 export interface MessageEntry {
