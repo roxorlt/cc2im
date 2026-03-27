@@ -3,3 +3,4 @@ dist/
 *.js.map
 .mcp.json
 src/.DS_Store
+.claude/worktrees
