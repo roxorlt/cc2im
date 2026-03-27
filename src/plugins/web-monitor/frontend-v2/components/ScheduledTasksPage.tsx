@@ -155,7 +155,7 @@ function AddTaskDialog({ agents, onClose, onRefreshJobs }: {
   onRefreshJobs: () => void
 }) {
   const [name, setName] = useState('')
-  const [agentId, setAgentId] = useState(agents[0]?.name || '')
+  const [agentId, setAgentId] = useState(agents[0]?.name || 'brain')
   const [scheduleType, setScheduleType] = useState<'cron' | 'once' | 'interval'>('cron')
   const [scheduleValue, setScheduleValue] = useState('')
   const [timezone, setTimezone] = useState('Asia/Shanghai')
@@ -242,6 +242,7 @@ function AddTaskDialog({ agents, onClose, onRefreshJobs }: {
             <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>{'\u76ee\u6807 Agent'}</label>
             <select value={agentId} onChange={e => setAgentId(e.target.value)}
               style={{ ...inputStyle, cursor: 'pointer' }}>
+              {agents.length === 0 && <option value="brain">brain</option>}
               {agents.map(a => (
                 <option key={a.name} value={a.name}>{a.name}</option>
               ))}
