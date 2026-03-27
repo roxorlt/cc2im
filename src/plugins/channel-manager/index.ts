@@ -95,7 +95,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
               return
             }
             console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
-            ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString() })
+            ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString(), channelId: ref.channelId })
             await channelSendText(ref, msg.text)
             break
           }
@@ -160,6 +160,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
                 timestamp: new Date().toISOString(),
                 msgType,
                 mediaUrl: `/media/${mediaName}`,
+                channelId: ref.channelId,
               })
             } catch (err: any) {
               console.error(`[hub] Failed to send file from ${agentId}: ${err.message}`)
@@ -222,7 +223,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           const text = buildMessageContent(incomingMsg, routed.text)
           console.log(`[hub] Forwarding to ${routed.agentId}: ${text.substring(0, 80)}`)
           const mediaUrl = incomingMsg.mediaPath ? `/media/${basename(incomingMsg.mediaPath)}` : undefined
-          ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl })
+          ctx.broadcastMonitor({ kind: 'message_in', agentId: routed.agentId, userId, text: routed.text, timestamp: new Date().toISOString(), msgType: incomingMsg.type, mediaUrl, channelId: incomingMsg.channelId, channelType: incomingMsg.channelType })
           const sent = ctx.deliverToAgent(routed.agentId, {
             type: 'message',
             userId,
