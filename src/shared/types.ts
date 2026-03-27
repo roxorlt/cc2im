@@ -136,4 +136,5 @@ export interface HubEvent {
 export interface AgentsConfig {
   defaultAgent: string   // 无 @前缀时路由到的 agent
   agents: Record<string, AgentConfig>
+  channelDefaults?: Record<string, string>  // channelId → defaultAgent
 }

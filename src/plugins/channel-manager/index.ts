@@ -187,7 +187,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
 
           // Route message
           const router = ctx.getRouter()
-          const routed = router.route(incomingMsg.text || '')
+          const routed = router.route(incomingMsg.text || '', channelId)
           lastUserByAgent.set(routed.agentId, ref)
 
           // Unknown agent
