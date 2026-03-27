@@ -23,6 +23,12 @@
             "command": "OUTPUT=$(npm test 2>&1); EXIT=$?; echo \"$OUTPUT\" | tail -5; if [ $EXIT -ne 0 ]; then printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Tests failed — fix before committing\"}}'; fi",
             "timeout": 60,
             "statusMessage": "Running full test suite before commit..."
+          },
+          {
+            "type": "command",
+            "if": "Bash(git merge:*)",
+            "command": "printf '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"additionalContext\":\"⚠️ MERGE GATE: Before merging, confirm that /pre-merge-testing has been run for this branch. If not, run it now before proceeding. This is a mandatory acceptance test step.\"}}'",
+            "statusMessage": "Checking pre-merge testing..."
           }
         ]
       }
