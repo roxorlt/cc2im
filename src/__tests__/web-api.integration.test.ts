@@ -56,6 +56,7 @@ vi.mock('../plugins/weixin/qr-login.js', () => ({
 // --- Import the real handler factory (after mocks are registered) ---
 
 import { createApiHandler } from '../plugins/web-monitor/server.js'
+import { listJobs, updateJob } from '../plugins/cron-scheduler/db.js'
 import type { HubContext } from '../shared/plugin.js'
 import type { Cc2imChannel, ChannelStatus } from '../shared/channel.js'
 
@@ -242,5 +243,108 @@ describe('Web API (integration)', () => {
   it('GET /unknown returns 404', async () => {
     const res = await fetch(`${baseUrl}/nonexistent-route`)
     expect(res.status).toBe(404)
+  })
+
+  // --- PATCH /api/cron-jobs/:id — nextRun recalculation on re-enable ---
+
+  it('PATCH /api/cron-jobs/:id recalculates nextRun when re-enabling a cron job', async () => {
+    const staleNextRun = '2025-01-01T00:00:00.000Z' // far in the past
+    const mockJob = {
+      id: 'job-reenable-test',
+      name: 'test-cron',
+      agentId: 'brain',
+      scheduleType: 'cron' as const,
+      scheduleValue: '0 9 * * *', // every day at 09:00
+      timezone: 'Asia/Shanghai',
+      message: 'hello',
+      enabled: false,
+      nextRun: staleNextRun,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'dashboard',
+    }
+
+    // Configure mocks for this test
+    const listJobsMock = vi.mocked(listJobs)
+    const updateJobMock = vi.mocked(updateJob)
+    listJobsMock.mockReturnValueOnce([mockJob])
+    updateJobMock.mockReturnValueOnce(true)
+
+    const res = await fetch(`${baseUrl}/api/cron-jobs/job-reenable-test`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    })
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(true)
+
+    // Verify updateJob was called with a recalculated nextRun in the future
+    expect(updateJobMock).toHaveBeenCalledWith(
+      'job-reenable-test',
+      expect.objectContaining({
+        enabled: true,
+        nextRun: expect.any(String),
+      })
+    )
+    const callArgs = updateJobMock.mock.calls[updateJobMock.mock.calls.length - 1]
+    const updatedNextRun = callArgs[1].nextRun as string
+    expect(new Date(updatedNextRun).getTime()).toBeGreaterThan(Date.now())
+    expect(updatedNextRun).not.toBe(staleNextRun)
+  })
+
+  it('PATCH /api/cron-jobs/:id recalculates nextRun for interval schedule on re-enable', async () => {
+    const staleNextRun = '2025-01-01T00:00:00.000Z'
+    const mockJob = {
+      id: 'job-interval-test',
+      name: 'test-interval',
+      agentId: 'brain',
+      scheduleType: 'interval' as const,
+      scheduleValue: '3600000', // 1 hour in ms
+      timezone: 'Asia/Shanghai',
+      message: 'ping',
+      enabled: false,
+      nextRun: staleNextRun,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      createdBy: 'dashboard',
+    }
+
+    const listJobsMock = vi.mocked(listJobs)
+    const updateJobMock = vi.mocked(updateJob)
+    listJobsMock.mockReturnValueOnce([mockJob])
+    updateJobMock.mockReturnValueOnce(true)
+
+    const beforeCall = Date.now()
+    const res = await fetch(`${baseUrl}/api/cron-jobs/job-interval-test`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true }),
+    })
+
+    expect(res.status).toBe(200)
+
+    const callArgs = updateJobMock.mock.calls[updateJobMock.mock.calls.length - 1]
+    const updatedNextRun = new Date(callArgs[1].nextRun as string).getTime()
+    // nextRun should be ~1 hour from now (within a small tolerance)
+    expect(updatedNextRun).toBeGreaterThanOrEqual(beforeCall + 3600000 - 1000)
+    expect(updatedNextRun).toBeLessThanOrEqual(Date.now() + 3600000 + 1000)
+  })
+
+  it('PATCH /api/cron-jobs/:id does NOT recalculate nextRun when enabled is not true', async () => {
+    const updateJobMock = vi.mocked(updateJob)
+    updateJobMock.mockReturnValueOnce(true)
+
+    const res = await fetch(`${baseUrl}/api/cron-jobs/some-job`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'renamed' }),
+    })
+
+    expect(res.status).toBe(200)
+
+    // updateJob should be called with only the name update, no nextRun
+    const callArgs = updateJobMock.mock.calls[updateJobMock.mock.calls.length - 1]
+    expect(callArgs[1]).toEqual({ name: 'renamed' })
+    expect(callArgs[1]).not.toHaveProperty('nextRun')
   })
 })
