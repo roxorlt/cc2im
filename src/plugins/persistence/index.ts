@@ -55,7 +55,7 @@ export function createPersistencePlugin(): Cc2imPlugin {
         if (msg.type !== 'message') return
         if (msg.userId === 'system') return
         const m = msg as HubToSpokeMessage
-        const dbId = storeInbound(agentId, m.userId, m.text, m.msgType, m.mediaPath)
+        const dbId = storeInbound(agentId, m.userId, m.text, m.msgType, m.mediaPath, m.channelId)
         pendingDeliveries.set(deliveryId, { agentId, messageId: dbId })
       })
 

@@ -6,6 +6,7 @@ export interface HubToSpokeMessage {
   msgType: string // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaPath?: string // 媒体文件路径（hub 下载后传给 spoke）
   timestamp: string
+  channelId?: string  // internal use: persistence tracks channel source
 }
 
 // Hub → Spoke: permission verdict（用户在微信回复了 yes/no）

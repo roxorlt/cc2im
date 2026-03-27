@@ -35,6 +35,23 @@ export function openDb(): Database.Database {
       ON messages(created_at);
   `)
 
+  // Idempotent column add (SQLite doesn't support IF NOT EXISTS for columns)
+  try {
+    db.exec(`ALTER TABLE messages ADD COLUMN channel_id TEXT`)
+  } catch {
+    // column already exists, ignore
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS nicknames (
+      channel_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      nickname TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (channel_id, user_id)
+    );
+  `)
+
   return db
 }
 
@@ -43,22 +60,28 @@ export function closeDb() {
   db = null
 }
 
-export function storeInbound(agentId: string, userId: string, text: string, msgType: string, mediaPath?: string): string {
+export function storeInbound(
+  agentId: string, userId: string, text: string, msgType: string,
+  mediaPath?: string, channelId?: string,
+): string {
   const id = randomUUID()
   openDb().prepare(`
-    INSERT INTO messages (id, direction, agent_id, user_id, text, msg_type, media_path, created_at)
-    VALUES (?, 'inbound', ?, ?, ?, ?, ?, ?)
-  `).run(id, agentId, userId, text, msgType, mediaPath ?? null, new Date().toISOString())
+    INSERT INTO messages (id, direction, agent_id, user_id, text, msg_type, media_path, channel_id, created_at)
+    VALUES (?, 'inbound', ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, agentId, userId, text, msgType, mediaPath ?? null, channelId ?? null, new Date().toISOString())
   return id
 }
 
-export function storeOutbound(agentId: string, userId: string, text: string): string {
+export function storeOutbound(
+  agentId: string, userId: string, text: string,
+  channelId?: string,
+): string {
   const id = randomUUID()
   const now = new Date().toISOString()
   openDb().prepare(`
-    INSERT INTO messages (id, direction, agent_id, user_id, text, created_at, delivered_at)
-    VALUES (?, 'outbound', ?, ?, ?, ?, ?)
-  `).run(id, agentId, userId, text, now, now)
+    INSERT INTO messages (id, direction, agent_id, user_id, text, channel_id, created_at, delivered_at)
+    VALUES (?, 'outbound', ?, ?, ?, ?, ?, ?)
+  `).run(id, agentId, userId, text, channelId ?? null, now, now)
   return id
 }
 
@@ -105,4 +128,19 @@ export function cleanup(): { expired: number; deleted: number } {
     d.exec('VACUUM')
   }
   return { expired, deleted: deleted + extraDeleted }
+}
+
+export function getNicknames(): Array<{ channelId: string; userId: string; nickname: string }> {
+  return openDb().prepare(
+    `SELECT channel_id AS channelId, user_id AS userId, nickname FROM nicknames`
+  ).all() as any[]
+}
+
+export function setNickname(channelId: string, userId: string, nickname: string): void {
+  const now = new Date().toISOString()
+  openDb().prepare(`
+    INSERT INTO nicknames (channel_id, user_id, nickname, updated_at)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(channel_id, user_id) DO UPDATE SET nickname = excluded.nickname, updated_at = excluded.updated_at
+  `).run(channelId, userId, nickname, now)
 }

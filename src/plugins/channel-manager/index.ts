@@ -231,6 +231,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
             msgType: incomingMsg.type,
             mediaPath: incomingMsg.mediaPath ?? undefined,
             timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
+            channelId: incomingMsg.channelId,
           })
           if (sent) {
             startPendingAck(routed.agentId, ref)
