@@ -152,5 +152,5 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels, nicknames, setNicknames }
+  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames }
 }
