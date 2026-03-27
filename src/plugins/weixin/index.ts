@@ -8,16 +8,20 @@ import { copyFileSync, mkdirSync } from 'node:fs'
 import type { Cc2imPlugin, HubContext } from '../../shared/plugin.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
 import { WeixinConnection } from './connection.js'
-import { PermissionManager } from './permission.js'
+import { PermissionManager, type UserRef } from './permission.js'
 
 const TYPING_ACK_DELAY_MS = 10_000 // 10s 后发"处理中"
 
+/**
+ * @deprecated Use createChannelManagerPlugin + WeixinChannel instead.
+ * Kept for reference during migration — no longer registered in hub.
+ */
 export function createWeixinPlugin(): Cc2imPlugin {
   let weixin: WeixinConnection
   let permissionMgr: PermissionManager
   let cleanupInterval: ReturnType<typeof setInterval>
-  const lastUserByAgent = new Map<string, string>()
-  let lastGlobalUser: string | null = null
+  const lastUserByAgent = new Map<string, UserRef>()
+  let lastGlobalUser: UserRef | null = null
   // Per-agent pending ack timer: agentId → { userId, timer }
   const pendingAck = new Map<string, { userId: string; timer: ReturnType<typeof setTimeout> }>()
 
@@ -60,7 +64,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
           }
           case 'permission_request': {
             console.log(`[hub] Permission request from ${agentId}: ${msg.toolName}`)
-            await permissionMgr.handleRequest(agentId, msg, ctx, weixin, lastUserByAgent, lastGlobalUser)
+            const sendFn = async (userId: string, text: string) => { await weixin.send(userId, text) }
+            await permissionMgr.handleRequest(agentId, msg, ctx, sendFn, lastUserByAgent, lastGlobalUser)
             break
           }
           case 'status': {
@@ -113,7 +118,8 @@ export function createWeixinPlugin(): Cc2imPlugin {
       // --- WeChat → Spoke: handle incoming WeChat messages ---
       weixin.setMessageHandler(async (incomingMsg) => {
         const userId = incomingMsg.userId
-        lastGlobalUser = userId
+        const ref: UserRef = { userId, channelId: 'weixin' }
+        lastGlobalUser = ref
 
         // Permission verdict detection
         if (permissionMgr.tryHandleVerdict(incomingMsg, ctx)) return
@@ -121,7 +127,7 @@ export function createWeixinPlugin(): Cc2imPlugin {
         // Route message
         const router = ctx.getRouter()
         const routed = router.route(incomingMsg.text || '')
-        lastUserByAgent.set(routed.agentId, userId)
+        lastUserByAgent.set(routed.agentId, ref)
 
         // Unknown agent
         if (routed.unknownAgent) {

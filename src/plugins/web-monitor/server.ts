@@ -274,6 +274,12 @@ export async function startWeb(options: { port: number }) {
   // --- Start ---
   monitor.connect()
 
+  httpServer.on('error', (err: any) => {
+    console.error(`[web] HTTP server error: ${err.message}`)
+  })
+  wss.on('error', (err: any) => {
+    console.error(`[web] WebSocket server error: ${err.message}`)
+  })
   httpServer.listen(port, host, () => {
     console.log(`[web] Dashboard: http://${host}:${port}`)
     console.log(`[web] WebSocket: ws://${host}:${port}/ws`)

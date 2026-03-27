@@ -115,7 +115,7 @@ export interface MonitorRegister {
 export interface HubEventData {
   kind: 'agent_online' | 'agent_offline' | 'message_in' | 'message_out'
     | 'permission_request' | 'permission_verdict' | 'agent_started' | 'agent_stopped'
-    | 'config_changed'
+    | 'config_changed' | 'channel_status'
   agentId: string
   timestamp: string
   userId?: string
@@ -136,4 +136,5 @@ export interface HubEvent {
 export interface AgentsConfig {
   defaultAgent: string   // 无 @前缀时路由到的 agent
   agents: Record<string, AgentConfig>
+  channelDefaults?: Record<string, string>  // channelId → defaultAgent
 }

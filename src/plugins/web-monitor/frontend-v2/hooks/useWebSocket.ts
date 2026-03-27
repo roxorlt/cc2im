@@ -10,7 +10,7 @@ export interface AgentStatus {
 }
 
 export interface HubEventData {
-  kind: string
+  kind: string  // includes 'channel_status'
   agentId: string
   timestamp: string
   userId?: string
@@ -20,6 +20,12 @@ export interface HubEventData {
   code?: number
   msgType?: string    // 'text' | 'image' | 'video' | 'file' | 'voice'
   mediaUrl?: string   // '/media/{filename}'
+}
+
+export interface ChannelInfo {
+  id: string
+  status: 'connected' | 'disconnected' | 'expired' | 'connecting'
+  label: string
 }
 
 export interface MessageEntry {
@@ -39,6 +45,7 @@ export function useWebSocket() {
   const [wsConnected, setWsConnected] = useState(false)
   const [messages, setMessages] = useState<MessageEntry[]>([])
   const [logs, setLogs] = useState<Array<{ source: string; line: string; ts: string }>>([])
+  const [channels, setChannels] = useState<ChannelInfo[]>([])
   const wsRef = useRef<WebSocket | null>(null)
 
   const connect = useCallback(() => {
@@ -95,6 +102,24 @@ export function useWebSocket() {
           }).catch(() => {})
         }
 
+        if (ev.kind === 'channel_status') {
+          // text format: "{label}: {status}" or "{label}: {status} — {detail}"
+          const channelId = ev.agentId
+          const text = ev.text || ''
+          const colonIdx = text.indexOf(':')
+          const label = colonIdx > 0 ? text.slice(0, colonIdx).trim() : channelId
+          const afterColon = colonIdx > 0 ? text.slice(colonIdx + 1).trim() : ''
+          // status is the first word after the colon (before optional " — detail")
+          const statusWord = afterColon.split(/\s/)[0] as ChannelInfo['status']
+          const validStatuses: ChannelInfo['status'][] = ['connected', 'disconnected', 'expired', 'connecting']
+          const status = validStatuses.includes(statusWord) ? statusWord : 'disconnected'
+
+          setChannels(prev => {
+            const existing = prev.filter(c => c.id !== channelId)
+            return [...existing, { id: channelId, status, label }]
+          })
+        }
+
         if (['message_in', 'message_out', 'permission_request', 'permission_verdict'].includes(ev.kind)) {
           setMessages(prev => [...prev.slice(-199), { event: ev, receivedAt: new Date().toISOString() }])
         }
@@ -111,5 +136,5 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs }
+  return { agents, hubConnected, wsConnected, messages, logs, channels }
 }
