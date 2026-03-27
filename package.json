@@ -9,6 +9,7 @@
   "files": [
     "dist",
     "src",
+    "!src/__tests__",
     "package.json",
     "tsconfig.json"
   ],
