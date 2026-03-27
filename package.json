@@ -17,6 +17,7 @@
     "build": "tsc",
     "dev:hub": "npx tsx src/hub/index.ts",
     "dev:spoke": "npx tsx src/spoke/index.ts",
+    "prepare": "git config core.hooksPath .githooks",
     "test": "vitest run",
     "test:watch": "vitest"
   },
