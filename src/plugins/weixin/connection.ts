@@ -37,6 +37,7 @@ export class WeixinConnection {
   private recentMessages = new Map<string, any>() // userId -> raw msg for reply
   private onIncoming: OnMessageCallback | null = null
   private listening = false
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   setMessageHandler(handler: OnMessageCallback) {
     this.onIncoming = handler
@@ -108,7 +109,7 @@ export class WeixinConnection {
 
     // Clean up expired media on startup + every 6 hours
     cleanupMedia()
-    setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
+    this.cleanupTimer = setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
 
     this.bot.onMessage(async (msg: any) => {
       // Allowlist check
@@ -155,8 +156,11 @@ export class WeixinConnection {
   /** Stop the polling loop and clear the message handler so reconnect starts clean. */
   stop() {
     this.bot.stop()
-    this.listening = false
+    if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null }
     this.onIncoming = null
+    // Note: do NOT reset this.listening — bot.onMessage() is additive (SDK has no
+    // removeHandler). The registered handler delegates to this.onIncoming, which is
+    // cleared above, making it a no-op until reconnect sets a fresh handler.
   }
 
   async startTyping(userId: string) {
