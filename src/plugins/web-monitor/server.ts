@@ -20,6 +20,7 @@ import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
+import { Cron } from 'croner'
 import { fetchQrCode, checkQrStatus, saveCredentials, POLL_INTERVAL, type QrStatus } from '../weixin/qr-login.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
@@ -272,7 +273,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
               if (result.status === 'confirmed' && result.credentials) {
                 clearInterval(poll)
                 activeQrPolls.delete(channelId)
-                saveCredentials(result.credentials)
+                saveCredentials(result.credentials, channelId)
                 // Reconnect channel with new credentials
                 try {
                   await ctx!.reconnectChannel(channelId)
@@ -433,6 +434,28 @@ export function createApiHandler(deps: ApiHandlerDeps) {
       req.on('end', () => {
         try {
           const updates = JSON.parse(body)
+
+          // If re-enabling a job, recalculate nextRun so it doesn't fire immediately
+          if (updates.enabled === true) {
+            const jobs = listJobs()
+            const job = jobs.find(j => j.id === jobId)
+            if (job) {
+              if (job.scheduleType === 'cron') {
+                try {
+                  const c = new Cron(job.scheduleValue, { timezone: job.timezone })
+                  const next = c.nextRun()
+                  if (next) updates.nextRun = next.toISOString()
+                } catch { /* invalid cron — let it be */ }
+              } else if (job.scheduleType === 'interval') {
+                const ms = parseInt(job.scheduleValue, 10)
+                if (!isNaN(ms) && ms > 0) {
+                  updates.nextRun = new Date(Date.now() + ms).toISOString()
+                }
+              }
+              // 'once' type: don't recalculate — if it already fired, it stays disabled
+            }
+          }
+
           const ok = updateJob(jobId, updates)
           res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify(ok ? { success: true } : { error: 'Job not found' }))
@@ -486,7 +509,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
   }
 }
 
-export async function startWeb(options: { port: number; ctx?: HubContext }) {
+export async function startWeb(options: { port: number; ctx?: HubContext }): Promise<{ shutdown: () => void }> {
   const { port, ctx } = options
   const host = '127.0.0.1'
 
@@ -673,15 +696,14 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
     console.log(`[web] Hub: ${monitor.isConnected() ? 'connected' : 'connecting...'}`)
   })
 
-  // Graceful shutdown
-  const shutdown = () => {
-    console.log('[web] Shutting down...')
-    logTailer.stop()
-    monitor.disconnect()
-    wss.close()
-    httpServer.close()
-    process.exit(0)
+  // Return shutdown handle — caller manages when to invoke
+  return {
+    shutdown() {
+      console.log('[web] Shutting down...')
+      logTailer.stop()
+      monitor.disconnect()
+      wss.close()
+      httpServer.close()
+    },
   }
-  process.on('SIGTERM', shutdown)
-  process.on('SIGINT', shutdown)
 }

@@ -19,6 +19,7 @@ interface PendingPermission {
   agentId: string
   toolName: string
   userId: string
+  channelId: string
   createdAt: number
 }
 
@@ -51,6 +52,7 @@ export class PermissionManager {
       agentId,
       toolName: msg.toolName,
       userId: targetUserId,
+      channelId: ref?.channelId || '',
       createdAt: Date.now(),
     })
 
@@ -78,7 +80,7 @@ export class PermissionManager {
 
   /** Try to match an incoming WeChat message as a permission verdict. Returns true if handled. */
   tryHandleVerdict(
-    msg: { type: string; text?: string; userId: string },
+    msg: { type: string; text?: string; userId: string; channelId?: string },
     ctx: HubContext,
   ): boolean {
     if (msg.type !== 'text' || !msg.text || this.pending.length === 0) return false
@@ -90,7 +92,9 @@ export class PermissionManager {
     const isAlways = /^(always|始终|总是)$/.test(reply)
     const isAllow = isAlways || /^(y|yes|ok|好|批准)$/i.test(reply)
 
-    const idx = this.pending.findIndex(p => p.userId === msg.userId)
+    const idx = this.pending.findIndex(p =>
+      p.userId === msg.userId && (!msg.channelId || p.channelId === msg.channelId)
+    )
     if (idx < 0) return false
 
     const pending = this.pending.splice(idx, 1)[0]

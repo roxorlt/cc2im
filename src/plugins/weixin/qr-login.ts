@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import QRCode from 'qrcode'
@@ -63,9 +63,31 @@ export async function checkQrStatus(qrToken: string): Promise<{ status: QrStatus
   return { status: 'pending' }
 }
 
-export function saveCredentials(creds: QrCredentials): void {
+export function saveCredentials(creds: QrCredentials, channelId?: string): void {
   mkdirSync(CRED_DIR, { recursive: true, mode: 0o700 })
-  writeFileSync(CRED_PATH, JSON.stringify(creds, null, 2) + '\n', { mode: 0o600 })
+  const json = JSON.stringify(creds, null, 2) + '\n'
+  // Always write global file (backward compat for CLI `cc2im login`)
+  writeFileSync(CRED_PATH, json, { mode: 0o600 })
+  // Also write per-channel file when channelId is provided
+  if (channelId) {
+    const channelPath = join(CRED_DIR, `credentials-${channelId}.json`)
+    writeFileSync(channelPath, json, { mode: 0o600 })
+  }
 }
 
-export { POLL_INTERVAL }
+export function loadCredentials(channelId?: string): QrCredentials | null {
+  if (channelId) {
+    // Try per-channel file first
+    const channelPath = join(CRED_DIR, `credentials-${channelId}.json`)
+    if (existsSync(channelPath)) {
+      return JSON.parse(readFileSync(channelPath, 'utf8'))
+    }
+  }
+  // Fall back to global file
+  if (existsSync(CRED_PATH)) {
+    return JSON.parse(readFileSync(CRED_PATH, 'utf8'))
+  }
+  return null
+}
+
+export { CRED_DIR, CRED_PATH, POLL_INTERVAL }

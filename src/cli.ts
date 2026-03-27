@@ -320,7 +320,10 @@ switch (command) {
   case 'web': {
     const webPort = parseInt(process.argv.find((a, i) => process.argv[i - 1] === '--port') || '3721')
     const { startWeb } = await import('./plugins/web-monitor/server.js')
-    await startWeb({ port: webPort })
+    const handle = await startWeb({ port: webPort })
+    const shutdown = () => { handle.shutdown(); process.exit(0) }
+    process.on('SIGTERM', shutdown)
+    process.on('SIGINT', shutdown)
     break
   }
 

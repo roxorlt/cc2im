@@ -6,9 +6,9 @@
 import { WeixinBot } from '@pinixai/weixin-bot'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { downloadMedia, cleanupMedia } from './media.js'
+import { loadCredentials, CRED_PATH } from './qr-login.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
 import { uploadMedia } from './media-upload.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
@@ -36,6 +36,8 @@ export class WeixinConnection {
   private bot = new WeixinBot()
   private recentMessages = new Map<string, any>() // userId -> raw msg for reply
   private onIncoming: OnMessageCallback | null = null
+  private listening = false
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
   setMessageHandler(handler: OnMessageCallback) {
     this.onIncoming = handler
@@ -76,11 +78,18 @@ export class WeixinConnection {
     } catch {}
   }
 
-  async login(): Promise<string> {
-    const credPath = join(homedir(), '.weixin-bot', 'credentials.json')
-    if (!existsSync(credPath)) {
+  async login(channelId?: string): Promise<string> {
+    // Load per-channel credentials (falls back to global file)
+    const channelCreds = loadCredentials(channelId)
+    if (!channelCreds) {
       throw new Error('未找到微信登录凭证! 请先运行: cc2im login')
     }
+
+    // Write per-channel creds to the global path so the SDK picks them up.
+    // TODO: Race condition if two channels call login() concurrently — channel B
+    // could overwrite the global file before channel A's bot.login() reads it.
+    // Currently safe because channel-manager starts channels sequentially.
+    writeFileSync(CRED_PATH, JSON.stringify(channelCreds, null, 2) + '\n', { mode: 0o600 })
 
     console.log('[hub] 使用已保存的凭证登录微信...')
     const creds = await this.bot.login()
@@ -95,9 +104,12 @@ export class WeixinConnection {
   }
 
   startListening() {
+    if (this.listening) return
+    this.listening = true
+
     // Clean up expired media on startup + every 6 hours
     cleanupMedia()
-    setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
+    this.cleanupTimer = setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
 
     this.bot.onMessage(async (msg: any) => {
       // Allowlist check
@@ -139,6 +151,16 @@ export class WeixinConnection {
   async startPolling() {
     console.log('[hub] 开始监听微信消息...')
     await this.bot.run()
+  }
+
+  /** Stop the polling loop and clear the message handler so reconnect starts clean. */
+  stop() {
+    this.bot.stop()
+    if (this.cleanupTimer) { clearInterval(this.cleanupTimer); this.cleanupTimer = null }
+    this.onIncoming = null
+    // Note: do NOT reset this.listening — bot.onMessage() is additive (SDK has no
+    // removeHandler). The registered handler delegates to this.onIncoming, which is
+    // cleared above, making it a no-op until reconnect sets a fresh handler.
   }
 
   async startTyping(userId: string) {

@@ -20,6 +20,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
   let cleanupInterval: ReturnType<typeof setInterval>
 
   const lastUserByAgent = new Map<string, UserRef>()
+  const lastChannelByUser = new Map<string, string>() // userId -> channelId
   let lastGlobalUser: UserRef | null = null
 
   // Per-agent pending ack timer: agentId -> { ref, timer }
@@ -179,10 +180,11 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           const channelId = incomingMsg.channelId
           const ref: UserRef = { userId, channelId }
           lastGlobalUser = ref
+          lastChannelByUser.set(userId, channelId)
 
           // Permission verdict detection
           if (permissionMgr.tryHandleVerdict(
-            { type: incomingMsg.type, text: incomingMsg.text, userId },
+            { type: incomingMsg.type, text: incomingMsg.text, userId, channelId },
             ctx,
           )) return
 
@@ -296,6 +298,9 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         for (const [agentId, ref] of lastUserByAgent) {
           if (ref.channelId === channelId) lastUserByAgent.delete(agentId)
         }
+        for (const [uid, chId] of lastChannelByUser) {
+          if (chId === channelId) lastChannelByUser.delete(uid)
+        }
         if (lastGlobalUser?.channelId === channelId) lastGlobalUser = null
 
         // Persist
@@ -331,19 +336,24 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         // If we have a tracked ref for this agent, use it
         const tracked = lastUserByAgent.get(agentId)
         if (tracked) {
-          // If userId matches or no userId specified, use tracked ref
           if (!userId || tracked.userId === userId) return tracked
-          // userId specified but differs from tracked — use tracked channelId with specified userId
+          // userId specified but differs — look up channel by userId
+          const channelId = lastChannelByUser.get(userId)
+          if (channelId) return { userId, channelId }
+          // Fall back to tracked channel (best effort)
           return { userId, channelId: tracked.channelId }
         }
         // Fall back to global last user
         if (lastGlobalUser) {
           if (!userId || lastGlobalUser.userId === userId) return lastGlobalUser
+          const channelId = lastChannelByUser.get(userId)
+          if (channelId) return { userId, channelId }
           return { userId, channelId: lastGlobalUser.channelId }
         }
         // No ref available
         if (userId) {
-          // Try first channel as fallback
+          const channelId = lastChannelByUser.get(userId)
+          if (channelId) return { userId, channelId }
           const firstChannel = channels[0]
           if (firstChannel) return { userId, channelId: firstChannel.id }
         }
