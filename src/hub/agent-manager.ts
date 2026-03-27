@@ -105,7 +105,7 @@ export class AgentManager {
       }
       console.log(`[agent-manager] Agent "${name}" has stale process (not connected), restarting`)
       const stale = this.processes.get(name)!
-      stale.kill('SIGKILL')
+      this.killProcessTree(stale)
       this.processes.delete(name)
     }
 
@@ -169,6 +169,7 @@ export class AgentManager {
     const child = spawn(cmd, args, {
       cwd: agent.cwd,
       stdio: ['pipe', 'ignore', 'ignore'],
+      detached: true,  // new process group — allows killing entire tree with -pid
     })
 
     child.on('exit', (code) => {
@@ -229,8 +230,8 @@ export class AgentManager {
     this.stoppedManually.add(name)
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
-        // Force kill if SIGTERM didn't work
-        child.kill('SIGKILL')
+        // Force kill entire process tree if SIGTERM didn't work
+        this.killProcessTree(child)
         this.processes.delete(name)
         console.log(`[agent-manager] Force-killed "${name}" (SIGTERM timeout)`)
         resolve({ success: true })
@@ -243,7 +244,8 @@ export class AgentManager {
         resolve({ success: true })
       })
 
-      child.kill('SIGTERM')
+      // SIGTERM the entire process group
+      this.killProcessTree(child, 'SIGTERM')
     })
   }
 
@@ -269,13 +271,25 @@ export class AgentManager {
     }))
   }
 
+  /** Kill an agent's entire process tree (caffeinate → expect → claude).
+   *  Uses negative PID to kill the process group created by detached: true. */
+  private killProcessTree(child: ChildProcess, signal: NodeJS.Signals = 'SIGKILL') {
+    try {
+      // Kill entire process group (negative PID)
+      process.kill(-child.pid!, signal)
+    } catch {
+      // Fallback: kill just the child
+      try { child.kill(signal) } catch { /* already dead */ }
+    }
+  }
+
   /** Kill an agent's process for restart (e.g., after heartbeat eviction).
    *  Does NOT mark as manually stopped — child.on('exit') will auto-restart. */
   killForRestart(name: string) {
     const child = this.processes.get(name)
     if (child) {
       console.log(`[agent-manager] Killing "${name}" for restart`)
-      child.kill('SIGKILL')
+      this.killProcessTree(child)
     }
   }
 
