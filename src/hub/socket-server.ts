@@ -153,8 +153,9 @@ export class HubSocketServer {
       console.log(`[hub] Listening on ${HUB_SOCKET_PATH}`)
     })
 
-    // Periodically evict spokes that missed heartbeats
+    // Periodically evict spokes that missed heartbeats + clean stale monitors
     this.heartbeatChecker = setInterval(() => {
+      for (const s of this.monitors) { if (s.destroyed) this.monitors.delete(s) }
       const now = Date.now()
       for (const [agentId, lastSeen] of this.lastHeartbeat) {
         if (now - lastSeen > HEARTBEAT_TIMEOUT_MS) {

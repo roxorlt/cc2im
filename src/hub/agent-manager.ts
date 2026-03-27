@@ -196,6 +196,7 @@ export class AgentManager {
         if (attempts.count > MAX_RESTART_ATTEMPTS) {
           console.error(`[agent-manager] "${name}" crashed ${attempts.count} times in ${Math.round((now - attempts.firstAt) / 1000)}s — giving up auto-restart`)
           this.restartAttempts.delete(name)
+          this.onEvent?.('agent_dead', name)
           return
         }
       } else {

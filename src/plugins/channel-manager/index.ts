@@ -360,6 +360,14 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
         return null
       }
 
+      // Alert user when an agent dies after max restart attempts
+      ctx.on('agent:dead', (agentId: string) => {
+        const ref = lastGlobalUser
+        if (ref) {
+          channelSendText(ref, `⚠ Agent "${agentId}" 多次崩溃已停止自动重启，请检查日志。`).catch(() => {})
+        }
+      })
+
       // Permission cleanup interval
       cleanupInterval = setInterval(() => permissionMgr.cleanup(), 60_000)
 

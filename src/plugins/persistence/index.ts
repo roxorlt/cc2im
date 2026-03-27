@@ -79,7 +79,9 @@ export function createPersistencePlugin(): Cc2imPlugin {
       // Primary replay: when agent comes online
       // Works when WeChat context tokens are restored from cache
       ctx.on('agent:online', (agentId: string) => {
-        doReplay(ctx, agentId).catch(() => {})
+        doReplay(ctx, agentId).catch((err) => {
+          console.error(`[persistence] Replay failed for "${agentId}":`, err instanceof Error ? err.message : String(err))
+        })
       })
 
       // Periodic cleanup

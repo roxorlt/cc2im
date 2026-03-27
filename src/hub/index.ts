@@ -2,7 +2,7 @@
  * cc2im Hub — 常驻进程，核心路由 + 插件加载
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, truncateSync } from 'node:fs'
 import { join } from 'node:path'
 import { HubSocketServer } from './socket-server.js'
 import { Router } from './router.js'
@@ -28,8 +28,24 @@ function loadAgentsConfig(): AgentsConfig {
   return { defaultAgent: 'brain', agents: {} }
 }
 
+const MAX_LOG_BYTES = 50 * 1024 * 1024 // 50 MB
+
+function truncateLogs() {
+  const logDir = SOCKET_DIR
+  for (const name of ['hub.log', 'hub.error.log']) {
+    const p = join(logDir, name)
+    try {
+      if (existsSync(p) && statSync(p).size > MAX_LOG_BYTES) {
+        truncateSync(p, 0)
+        console.log(`[hub] Truncated oversized log: ${name}`)
+      }
+    } catch {}
+  }
+}
+
 // --- Main ---
 export async function startHub(options?: { autoStartAgents?: boolean }) {
+  truncateLogs()
   const config = loadAgentsConfig()
   const router = new Router(config)
 
@@ -39,7 +55,9 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   const agentManager = new AgentManager(
     () => socketServer.getConnectedAgents(),
     (kind, agentId, extra) => {
-      ctx.broadcastMonitor({ kind: kind as any, agentId, timestamp: new Date().toISOString(), ...extra })
+      const event = { kind: kind as any, agentId, timestamp: new Date().toISOString(), ...extra }
+      ctx.broadcastMonitor(event)
+      if (kind === 'agent_dead') ctx.emit('agent:dead', agentId)
     },
   )
 

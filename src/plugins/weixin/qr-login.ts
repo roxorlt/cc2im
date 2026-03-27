@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import QRCode from 'qrcode'
@@ -63,15 +63,21 @@ export async function checkQrStatus(qrToken: string): Promise<{ status: QrStatus
   return { status: 'pending' }
 }
 
+/** Atomic write: write to .tmp then rename (prevents corruption on crash). */
+function atomicWrite(path: string, data: string): void {
+  const tmp = path + '.tmp'
+  writeFileSync(tmp, data, { mode: 0o600 })
+  renameSync(tmp, path)
+}
+
 export function saveCredentials(creds: QrCredentials, channelId?: string): void {
   mkdirSync(CRED_DIR, { recursive: true, mode: 0o700 })
   const json = JSON.stringify(creds, null, 2) + '\n'
   // Always write global file (backward compat for CLI `cc2im login`)
-  writeFileSync(CRED_PATH, json, { mode: 0o600 })
+  atomicWrite(CRED_PATH, json)
   // Also write per-channel file when channelId is provided
   if (channelId) {
-    const channelPath = join(CRED_DIR, `credentials-${channelId}.json`)
-    writeFileSync(channelPath, json, { mode: 0o600 })
+    atomicWrite(join(CRED_DIR, `credentials-${channelId}.json`), json)
   }
 }
 

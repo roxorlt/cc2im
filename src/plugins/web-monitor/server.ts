@@ -258,7 +258,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
 
           // Start background polling (auto-expire after 10 minutes as safety net)
           const pollStart = Date.now()
-          const MAX_POLL_MS = 10 * 60 * 1000
+          const MAX_POLL_MS = 5 * 60 * 1000
           const poll = setInterval(async () => {
             if (Date.now() - pollStart > MAX_POLL_MS) {
               clearInterval(poll)
