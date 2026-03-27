@@ -509,6 +509,11 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       nicknameList = getNicknames()
     } catch {}
 
+    let cronJobList: any[] = []
+    try {
+      cronJobList = listJobs().map(j => ({ ...j, recentRuns: getRecentRuns(j.id, 5) }))
+    } catch {}
+
     return {
       agents,
       hubConnected: monitor.isConnected(),
@@ -516,6 +521,7 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       recentLogs: logBuffer.slice(-100),
       channels: channelList,
       nicknames: nicknameList,
+      cronJobs: cronJobList,
     }
   }
 
