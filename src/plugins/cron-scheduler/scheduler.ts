@@ -78,7 +78,10 @@ export class CronScheduler {
   recalcAll() {
     const jobs = getEnabledJobs()
     let updated = 0
+    const now = new Date().toISOString()
     for (const job of jobs) {
+      // Interval jobs: keep existing nextRun if still in the future
+      if (job.scheduleType === 'interval' && job.nextRun && job.nextRun > now) continue
       const nextRun = this.calcNextRun(job.scheduleType, job.scheduleValue, job.timezone)
       if (nextRun !== job.nextRun) {
         updateJob(job.id, { nextRun })

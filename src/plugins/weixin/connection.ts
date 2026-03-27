@@ -44,7 +44,7 @@ export class WeixinConnection {
   }
 
   /** Persist context tokens to disk so replies work after hub restart */
-  saveContextCache() {
+  saveContextCache(channelId?: string) {
     const cache: Record<string, { userId: string; _contextToken: string }> = {}
     for (const [userId, msg] of this.recentMessages) {
       if (msg._contextToken) {
@@ -52,22 +52,32 @@ export class WeixinConnection {
       }
     }
     try {
-      writeFileSync(CONTEXT_CACHE_PATH, JSON.stringify(cache) + '\n')
+      const path = channelId
+        ? join(SOCKET_DIR, `weixin-context-${channelId}.json`)
+        : CONTEXT_CACHE_PATH
+      writeFileSync(path, JSON.stringify(cache) + '\n')
       console.log(`[weixin] Saved context cache (${Object.keys(cache).length} users)`)
     } catch {}
   }
 
   /** Restore context tokens from disk. Call after login, before startListening. */
-  restoreContextCache() {
+  restoreContextCache(channelId?: string): void {
+    const path = channelId
+      ? join(SOCKET_DIR, `weixin-context-${channelId}.json`)
+      : CONTEXT_CACHE_PATH
     try {
-      if (!existsSync(CONTEXT_CACHE_PATH)) return
-      const cache = JSON.parse(readFileSync(CONTEXT_CACHE_PATH, 'utf8'))
+      if (!existsSync(path)) {
+        // Fall back to global file for backward compat
+        if (channelId && existsSync(CONTEXT_CACHE_PATH)) {
+          return this.restoreContextCache()
+        }
+        return
+      }
+      const cache = JSON.parse(readFileSync(path, 'utf8'))
       let restored = 0
       for (const [userId, entry] of Object.entries(cache) as [string, any][]) {
         if (entry._contextToken) {
-          // Restore minimal msg object with _contextToken for bot.reply()
           this.recentMessages.set(userId, { userId, _contextToken: entry._contextToken })
-          // Also restore into SDK's internal contextTokens map
           ;(this.bot as any).contextTokens?.set(userId, entry._contextToken)
           restored++
         }
