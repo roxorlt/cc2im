@@ -12,6 +12,7 @@
 - ~~微信媒体发送~~ — CC agent 通过 weixin_send_file MCP 工具发图片/文件到微信 (2026-03-27)
 - ~~Typing indicator + 延迟确认~~ — 10s 无回复自动发"收到，正在处理..." (2026-03-27)
 - ~~Channel 抽象层~~ — Cc2imChannel 接口 + WeixinChannel + ChannelManager 插件 + channel-aware 路由 (2026-03-27)
+- ~~Dashboard 改版~~ — 折叠式侧栏导航 + Channel 管理页 + 消息 channel/昵称标注 + 昵称编辑 + channel 筛选 + channel CRUD API + channels.json 持久化 (2026-03-27)
 
 ## 进行中
 
@@ -62,32 +63,7 @@
 
 ---
 
-### 3. Dashboard 改版
-
-**背景**：Channel 抽象后，Dashboard 需要适配新架构。
-
-**改动点**：
-
-1. **Channel 管理页（运维视角）**
-   - Channel 列表：连接状态指示灯、断开/连接操作
-   - Session 过期警告 + QR 码重新登录（微信特有）
-   - 新增/删除 channel 实例
-
-2. **对话管理页（业务视角，现有主页面改版）**
-   - 消息气泡标注来源：`[channel短名] 用户昵称`
-   - 顶部 channel 筛选下拉（全部 / 特定 channel）
-   - 用户昵称管理（替代原始 ID 显示）
-
-3. **Footer 优化**
-   - 每个 channel 连接状态指示灯（已实现基础版）
-
-**设计参考**：`docs/plans/2026-03-27-channel-abstraction.md` 1.5 节
-
-**来源**：2026-03-27 channel 架构讨论
-
----
-
-### 4. 权限管理体系
+### 3. 权限管理体系
 
 **背景**：多用户场景下需要细粒度权限控制。
 
