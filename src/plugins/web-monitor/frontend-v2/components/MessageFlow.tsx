@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { MessageEntry } from '../hooks/useWebSocket'
+import type { MessageEntry, HubEventData } from '../hooks/useWebSocket'
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -53,7 +53,71 @@ function MediaContent({ mediaUrl, msgType }: { mediaUrl: string; msgType: string
   )
 }
 
-function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: number; animate?: boolean }) {
+function MsgHeader({ event, nicknames, onSetNickname }: {
+  event: HubEventData
+  nicknames: Map<string, string>
+  onSetNickname: (channelId: string, userId: string, nickname: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  if (!event.channelId || !event.userId) return null
+
+  const key = `${event.channelId}:${event.userId}`
+  const nickname = nicknames.get(key)
+  // Show nickname if set, otherwise show last 8 chars of userId
+  const displayName = nickname || (event.userId.length > 8 ? '...' + event.userId.slice(-8) : event.userId)
+
+  // Channel label: channelId is like "weixin-roxor" → display as-is
+  const channelLabel = event.channelId
+
+  if (editing) {
+    return (
+      <div style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+        <span>{channelLabel} |</span>
+        <input
+          autoFocus
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && draft.trim()) {
+              onSetNickname(event.channelId!, event.userId!, draft.trim())
+              setEditing(false)
+            }
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          onBlur={() => setEditing(false)}
+          style={{
+            background: 'var(--bg-deep)', border: '1px solid var(--border)',
+            borderRadius: 3, padding: '1px 6px',
+            fontSize: 10, color: 'var(--text)', outline: 'none',
+            width: 80, fontFamily: 'var(--font-mono)',
+          }}
+          placeholder={displayName}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="msg-header" style={{ fontSize: 10, color: 'var(--text-dim)', marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+      <span>{channelLabel}</span>
+      <span style={{ color: 'var(--text-muted)' }}>|</span>
+      <span>{displayName}</span>
+      <span
+        onClick={() => { setDraft(nickname || ''); setEditing(true) }}
+        className="edit-pencil"
+        style={{ cursor: 'pointer', opacity: 0, transition: 'opacity 0.15s', fontSize: 9, marginLeft: 2 }}
+      >&#x270F;&#xFE0F;</span>
+    </div>
+  )
+}
+
+function MsgBubble({ entry, index, animate, showHeader, nicknames, onSetNickname }: {
+  entry: MessageEntry; index: number; animate?: boolean; showHeader?: boolean
+  nicknames: Map<string, string>
+  onSetNickname: (channelId: string, userId: string, nickname: string) => void
+}) {
   const ev = entry.event
   const isOut = ev.kind === 'message_out'
   const isPerm = ev.kind === 'permission_request' || ev.kind === 'permission_verdict'
@@ -87,6 +151,9 @@ function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: numb
         animation: isOut ? 'slide-in-right 0.25s ease' : 'slide-in-left 0.25s ease',
       } : {}),
     }}>
+      {!isOut && !isPerm && showHeader && (
+        <MsgHeader event={ev} nicknames={nicknames} onSetNickname={onSetNickname} />
+      )}
       <div style={{
         padding: '10px 14px',
         borderRadius: isOut ? '12px 12px 4px 12px' : '12px 12px 12px 4px',
@@ -119,10 +186,22 @@ function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: numb
   )
 }
 
-export function MessageFlow({ messages, agentId }: { messages: MessageEntry[]; agentId: string }) {
+interface MessageFlowProps {
+  messages: MessageEntry[]
+  agentId: string
+  channelFilter: string | null
+  nicknames: Map<string, string>
+  onSetNickname: (channelId: string, userId: string, nickname: string) => void
+}
+
+export function MessageFlow({ messages, agentId, channelFilter, nicknames, onSetNickname }: MessageFlowProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevCountRef = useRef(0)
-  const filtered = messages.filter(m => m.event.agentId === agentId)
+  const filtered = messages.filter(m => {
+    if (m.event.agentId !== agentId) return false
+    if (channelFilter && m.event.channelId !== channelFilter) return false
+    return true
+  })
 
   useEffect(() => {
     // First load: jump instantly. New messages: smooth scroll.
@@ -150,7 +229,16 @@ export function MessageFlow({ messages, agentId }: { messages: MessageEntry[]; a
       padding: '16px 20px',
       display: 'flex', flexDirection: 'column', gap: 8,
     }}>
-      {filtered.map((m, i) => <MsgBubble key={i} entry={m} index={i} animate={i >= prevCountRef.current - 1} />)}
+      {filtered.map((m, i) => {
+        const prev = i > 0 ? filtered[i - 1] : null
+        const showHeader = !prev
+          || prev.event.userId !== m.event.userId
+          || prev.event.channelId !== m.event.channelId
+          || prev.event.kind !== m.event.kind
+
+        return <MsgBubble key={i} entry={m} index={i} animate={i >= prevCountRef.current - 1}
+          showHeader={showHeader} nicknames={nicknames} onSetNickname={onSetNickname} />
+      })}
       <div ref={bottomRef} />
     </div>
   )

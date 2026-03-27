@@ -241,6 +241,24 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       return
     }
 
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/disconnect$/) && req.method === 'POST') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      const ch = ctx.getChannel(channelId)
+      if (!ch) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"channel not found"}'); return }
+      ;(async () => {
+        try {
+          await ch.disconnect()
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ id: channelId, status: ch.getStatus() }))
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })()
+      return
+    }
+
     if (url.pathname.match(/^\/api\/channels\/[^/]+\/probe$/) && req.method === 'POST') {
       const channelId = decodeURIComponent(url.pathname.split('/')[3])
       if (!ctx) {
@@ -398,12 +416,18 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       }))
     }
 
+    let nicknameList: Array<{ channelId: string; userId: string; nickname: string }> = []
+    try {
+      nicknameList = getNicknames()
+    } catch {}
+
     return {
       agents,
       hubConnected: monitor.isConnected(),
       recentMessages: messageHistory.slice(-50),
       recentLogs: logBuffer.slice(-100),
       channels: channelList,
+      nicknames: nicknameList,
     }
   }
 

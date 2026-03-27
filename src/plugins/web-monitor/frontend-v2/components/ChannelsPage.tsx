@@ -39,6 +39,14 @@ function ChannelCard({ channel }: { channel: ChannelInfo }) {
     }
   }
 
+  const handleDisconnect = async () => {
+    try {
+      await fetch(`/api/channels/${encodeURIComponent(channel.id)}/disconnect`, { method: 'POST' })
+    } catch (err) {
+      console.error('Disconnect failed:', err)
+    }
+  }
+
   const handleDelete = async () => {
     try {
       await fetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' })
@@ -90,6 +98,9 @@ function ChannelCard({ channel }: { channel: ChannelInfo }) {
         <button onClick={handleProbe} disabled={probing} style={btnStyle}>
           {probing ? '检查中...' : '检查连接'}
         </button>
+        {channel.status === 'connected' && (
+          <button onClick={handleDisconnect} style={{ ...btnStyle, color: 'var(--red)' }}>断开</button>
+        )}
         {(channel.status === 'disconnected' || channel.status === 'expired') && (
           <button onClick={handleDelete} style={{ ...btnStyle, color: 'var(--red)' }}>删除</button>
         )}
