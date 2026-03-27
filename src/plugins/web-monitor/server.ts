@@ -277,12 +277,17 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
       return
     }
 
-    if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && req.method === 'DELETE') {
+    if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && !url.pathname.includes('/disconnect') && req.method === 'DELETE') {
       if (!ctx) { res.writeHead(503); res.end('{"error":"no hub context"}'); return }
       const channelId = decodeURIComponent(url.pathname.slice('/api/channels/'.length))
       if (!ctx.getChannel(channelId)) {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end('{"error":"channel not found"}')
+        return
+      }
+      if (ctx.getChannels().length <= 1) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end('{"error":"cannot delete the last channel"}')
         return
       }
       ;(async () => {

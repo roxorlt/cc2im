@@ -150,6 +150,7 @@ export function App() {
                     messages={messages}
                     agentId={activeAgent}
                     channelFilter={channelFilter}
+                    activeChannelIds={new Set(channels.map(c => c.id))}
                     nicknames={nicknames}
                     onSetNickname={handleSetNickname}
                   />

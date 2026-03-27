@@ -296,6 +296,12 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           channelMap.delete(channelId)
         }
 
+        // Clean up user refs pointing to deleted channel
+        for (const [agentId, ref] of lastUserByAgent) {
+          if (ref.channelId === channelId) lastUserByAgent.delete(agentId)
+        }
+        if (lastGlobalUser?.channelId === channelId) lastGlobalUser = null
+
         // Persist
         const { loadChannelConfigs, saveChannelConfigs } = await import('../../shared/channel-config.js')
         const configs = loadChannelConfigs().filter(c => c.id !== channelId)

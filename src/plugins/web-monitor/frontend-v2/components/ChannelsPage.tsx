@@ -21,10 +21,12 @@ const btnStyle: React.CSSProperties = {
   fontFamily: 'var(--font-mono)',
 }
 
-function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onRefreshChannels: () => void }) {
+function ChannelCard({ channel, isLast, onRefreshChannels }: { channel: ChannelInfo; isLast: boolean; onRefreshChannels: () => void }) {
   const status = statusLabels[channel.status] || statusLabels.disconnected
   const [probing, setProbing] = useState(false)
   const [probeResult, setProbeResult] = useState<string | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const handleProbe = async () => {
     setProbing(true)
@@ -41,19 +43,25 @@ function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onR
   }
 
   const handleDisconnect = async () => {
+    setDisconnecting(true)
     try {
       await fetch(`/api/channels/${encodeURIComponent(channel.id)}/disconnect`, { method: 'POST' })
     } catch (err) {
       console.error('Disconnect failed:', err)
+    } finally {
+      setDisconnecting(false)
     }
   }
 
   const handleDelete = async () => {
+    setDeleting(true)
     try {
       const res = await fetch(`/api/channels/${encodeURIComponent(channel.id)}`, { method: 'DELETE' })
       if (res.ok) onRefreshChannels()
     } catch (err) {
       console.error('Delete failed:', err)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -101,10 +109,14 @@ function ChannelCard({ channel, onRefreshChannels }: { channel: ChannelInfo; onR
           {probing ? '检查中...' : '检查连接'}
         </button>
         {channel.status === 'connected' && (
-          <button onClick={handleDisconnect} style={{ ...btnStyle, color: 'var(--red)' }}>断开</button>
+          <button onClick={handleDisconnect} disabled={disconnecting} style={{ ...btnStyle, color: 'var(--red)' }}>
+            {disconnecting ? '断开中...' : '断开'}
+          </button>
         )}
-        {(channel.status === 'disconnected' || channel.status === 'expired') && (
-          <button onClick={handleDelete} style={{ ...btnStyle, color: 'var(--red)' }}>删除</button>
+        {!isLast && (channel.status === 'disconnected' || channel.status === 'expired') && (
+          <button onClick={handleDelete} disabled={deleting} style={{ ...btnStyle, color: 'var(--red)' }}>
+            {deleting ? '删除中...' : '删除'}
+          </button>
         )}
       </div>
     </div>
@@ -115,6 +127,7 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState('weixin')
   const [accountName, setAccountName] = useState('')
   const [creating, setCreating] = useState(false)
+  const [created, setCreated] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const handleCreate = async () => {
@@ -132,7 +145,7 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
         setError(data.error || 'Failed')
         return
       }
-      onClose()
+      setCreated(true)
     } catch (err: any) {
       setError(err.message)
     } finally {
@@ -141,52 +154,82 @@ function AddChannelDialog({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div style={{
-      padding: '20px 24px', borderRadius: 8,
-      background: 'var(--bg-card)', border: '1px solid var(--border)',
-      maxWidth: 400,
-    }}>
-      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>新增频道</div>
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          padding: '24px 28px', borderRadius: 10,
+          background: 'var(--bg-panel)', border: '1px solid var(--border)',
+          width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+        }}
+      >
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>新增频道</div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div>
-          <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>频道类型</label>
-          <select value={type} onChange={e => setType(e.target.value)}
-            style={{
-              width: '100%', padding: '6px 10px', borderRadius: 4,
-              border: '1px solid var(--border)', background: 'var(--bg-deep)',
-              color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-mono)',
+        {created ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{
+              padding: '12px 16px', borderRadius: 6,
+              background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)',
+              fontSize: 12, color: 'var(--green)', lineHeight: 1.6,
             }}>
-            <option value="weixin">微信</option>
-            <option value="telegram" disabled>Telegram (TBC)</option>
-          </select>
-        </div>
+              频道已创建。请在运行 hub 的终端中完成微信扫码登录。
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={onClose} style={{ ...btnStyle, color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                完成
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>频道类型</label>
+              <select value={type} onChange={e => setType(e.target.value)}
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 4,
+                  border: '1px solid var(--border)', background: 'var(--bg-deep)',
+                  color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-mono)',
+                }}>
+                <option value="weixin">微信</option>
+                <option value="telegram" disabled>Telegram (TBC)</option>
+              </select>
+            </div>
 
-        <div>
-          <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>授权账号名</label>
-          <input value={accountName} onChange={e => setAccountName(e.target.value)}
-            placeholder="如 roxor、家人"
-            style={{
-              width: '100%', padding: '6px 10px', borderRadius: 4,
-              border: '1px solid var(--border)', background: 'var(--bg-deep)',
-              color: 'var(--text)', fontSize: 12, outline: 'none', boxSizing: 'border-box',
-              fontFamily: 'var(--font-mono)',
-            }}
-            onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
-          />
-        </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--text-dim)', display: 'block', marginBottom: 4 }}>授权账号名</label>
+              <input value={accountName} onChange={e => setAccountName(e.target.value)}
+                autoFocus
+                placeholder="如 roxor、家人"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 4,
+                  border: '1px solid var(--border)', background: 'var(--bg-deep)',
+                  color: 'var(--text)', fontSize: 12, outline: 'none', boxSizing: 'border-box',
+                  fontFamily: 'var(--font-mono)',
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') handleCreate() }}
+              />
+            </div>
 
-        {error && (
-          <div style={{ fontSize: 11, color: 'var(--red)' }}>{error}</div>
+            {error && (
+              <div style={{ fontSize: 11, color: 'var(--red)' }}>{error}</div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button onClick={onClose} style={btnStyle}>取消</button>
+              <button onClick={handleCreate} disabled={creating || !accountName.trim()}
+                style={{ ...btnStyle, color: 'var(--accent)', borderColor: 'var(--accent)' }}>
+                {creating ? '创建中...' : '创建'}
+              </button>
+            </div>
+          </div>
         )}
-
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-          <button onClick={onClose} style={btnStyle}>取消</button>
-          <button onClick={handleCreate} disabled={creating || !accountName.trim()}
-            style={{ ...btnStyle, color: 'var(--accent)', borderColor: 'var(--accent)' }}>
-            {creating ? '创建中...' : '创建'}
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -211,7 +254,7 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefr
             暂无频道，点击侧栏「+ 新增频道」添加
           </div>
         ) : (
-          channels.map(ch => <ChannelCard key={ch.id} channel={ch} onRefreshChannels={onRefreshChannels} />)
+          channels.map(ch => <ChannelCard key={ch.id} channel={ch} isLast={channels.length <= 1} onRefreshChannels={onRefreshChannels} />)
         )}
       </div>
     </div>

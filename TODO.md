@@ -63,7 +63,23 @@
 
 ---
 
-### 3. 权限管理体系
+### 3. Dashboard 新增频道 — GUI 内展示 QR 码扫码
+
+**背景**：当前新增微信频道后提示"请在终端扫码"，用户体验差。应在 Dashboard 内直接展示二维码完成扫码授权。
+
+**实现方案**：
+- 服务端新增 `/api/channels/login` API：调用 iLink `get_bot_qrcode` 获取 QR 码 URL + token
+- 服务端轮询 `get_qrcode_status`，通过 WebSocket 推送扫码状态（scaned → confirmed → expired）
+- 前端 AddChannelDialog 创建后展示 QR 码图片 + 状态提示（等待扫码 / 已扫码请确认 / 已过期）
+- 确认后自动保存 credentials 并连接 channel
+
+**参考代码**：`src/cli.ts:75-130` login() 函数已有完整的 QR 获取 + 轮询逻辑
+
+**来源**：2026-03-27 Dashboard 改版测试反馈
+
+---
+
+### 4. 权限管理体系
 
 **背景**：多用户场景下需要细粒度权限控制。
 
