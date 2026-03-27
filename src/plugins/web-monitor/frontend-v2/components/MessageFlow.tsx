@@ -190,16 +190,21 @@ interface MessageFlowProps {
   messages: MessageEntry[]
   agentId: string
   channelFilter: string | null
+  activeChannelIds: Set<string>
   nicknames: Map<string, string>
   onSetNickname: (channelId: string, userId: string, nickname: string) => void
 }
 
-export function MessageFlow({ messages, agentId, channelFilter, nicknames, onSetNickname }: MessageFlowProps) {
+export function MessageFlow({ messages, agentId, channelFilter, activeChannelIds, nicknames, onSetNickname }: MessageFlowProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const prevCountRef = useRef(0)
   const filtered = messages.filter(m => {
     if (m.event.agentId !== agentId) return false
-    if (channelFilter && m.event.channelId !== channelFilter) return false
+    // Hide messages from deleted channels
+    if (m.event.channelId && activeChannelIds.size > 0 && !activeChannelIds.has(m.event.channelId)) return false
+    // Channel filter
+    if (channelFilter && m.event.channelId && m.event.channelId !== channelFilter) return false
+    if (channelFilter && !m.event.channelId) return false
     return true
   })
 
