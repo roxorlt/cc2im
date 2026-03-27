@@ -249,7 +249,7 @@ export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefr
         )}
       </div>
 
-      {qrLogin && (
+      {qrLogin && !showAddDialog && (
         <QrLoginOverlay
           qrUrl={qrLogin.qrUrl}
           status={qrLogin.status}
