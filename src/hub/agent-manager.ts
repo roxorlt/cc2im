@@ -12,12 +12,18 @@ import type { AgentConfig, AgentsConfig } from '../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 const STOP_TIMEOUT_MS = 5000
+const RESTART_DELAY_MS = 5000
+const MAX_RESTART_ATTEMPTS = 5
+const RESTART_WINDOW_MS = 5 * 60_000 // 5 min — reset counter if stable for this long
 
 export class AgentManager {
   private processes = new Map<string, ChildProcess>()
   private config: AgentsConfig
   private getConnectedAgents: () => string[]
   private onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void
+  private stoppedManually = new Set<string>()  // agents stopped by user intent
+  private shuttingDown = false                  // suppress auto-restart during hub shutdown
+  private restartAttempts = new Map<string, { count: number; firstAt: number }>() // backoff tracking
 
   constructor(getConnectedAgents: () => string[], onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void) {
     this.config = this.loadConfig()
@@ -170,17 +176,41 @@ export class AgentManager {
       this.processes.delete(name)
       this.onEvent?.('agent_stopped', name, { code })
 
-      // Auto-restart if configured (covers normal exit, not just heartbeat eviction)
-      const agentConfig = this.config.agents[name]
-      if (agentConfig?.autoStart) {
-        console.log(`[agent-manager] Auto-restarting "${name}" (exited with code ${code})`)
-        setTimeout(() => {
-          const result = this.start(name)
-          if (!result.success) {
-            console.log(`[agent-manager] Failed to restart "${name}": ${result.error}`)
-          }
-        }, 5000)
+      // Don't restart if: shutting down, or user explicitly stopped
+      if (this.shuttingDown) return
+      if (this.stoppedManually.has(name)) {
+        this.stoppedManually.delete(name)
+        this.restartAttempts.delete(name)
+        return
       }
+
+      const agentConfig = this.config.agents[name]
+      if (!agentConfig?.autoStart) return
+
+      // Backoff: track consecutive restarts within time window
+      const now = Date.now()
+      const attempts = this.restartAttempts.get(name)
+      if (attempts && now - attempts.firstAt < RESTART_WINDOW_MS) {
+        attempts.count++
+        if (attempts.count > MAX_RESTART_ATTEMPTS) {
+          console.error(`[agent-manager] "${name}" crashed ${attempts.count} times in ${Math.round((now - attempts.firstAt) / 1000)}s — giving up auto-restart`)
+          this.restartAttempts.delete(name)
+          return
+        }
+      } else {
+        this.restartAttempts.set(name, { count: 1, firstAt: now })
+      }
+
+      const attempt = this.restartAttempts.get(name)!
+      const delay = RESTART_DELAY_MS * attempt.count // 5s, 10s, 15s, 20s, 25s
+      console.log(`[agent-manager] Auto-restarting "${name}" in ${delay / 1000}s (attempt ${attempt.count}/${MAX_RESTART_ATTEMPTS})`)
+      setTimeout(() => {
+        if (this.shuttingDown || this.stoppedManually.has(name)) return
+        const result = this.start(name)
+        if (!result.success) {
+          console.log(`[agent-manager] Failed to restart "${name}": ${result.error}`)
+        }
+      }, delay)
     })
 
     this.processes.set(name, child)
@@ -188,13 +218,15 @@ export class AgentManager {
     return { success: true }
   }
 
-  /** Stop an agent and wait for the process to exit (with timeout). */
+  /** Stop an agent and wait for the process to exit (with timeout).
+   *  Marks as manually stopped — will NOT auto-restart. */
   stop(name: string): Promise<{ success: boolean; error?: string }> {
     const child = this.processes.get(name)
     if (!child) {
       return Promise.resolve({ success: false, error: `Agent "${name}" is not running` })
     }
 
+    this.stoppedManually.add(name)
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         // Force kill if SIGTERM didn't work
@@ -237,6 +269,16 @@ export class AgentManager {
     }))
   }
 
+  /** Kill an agent's process for restart (e.g., after heartbeat eviction).
+   *  Does NOT mark as manually stopped — child.on('exit') will auto-restart. */
+  killForRestart(name: string) {
+    const child = this.processes.get(name)
+    if (child) {
+      console.log(`[agent-manager] Killing "${name}" for restart`)
+      child.kill('SIGKILL')
+    }
+  }
+
   async restart(name: string): Promise<{ success: boolean; error?: string }> {
     // Only restart hub-managed agents. Externally started agents (foreground CLI)
     // cannot be stopped by the hub — refuse rather than spawn a duplicate.
@@ -248,6 +290,8 @@ export class AgentManager {
       return { success: false, error: `Agent "${name}" is not running` }
     }
     await this.stop(name)
+    this.stoppedManually.delete(name)  // restart is intentional, allow re-start
+    this.restartAttempts.delete(name)   // reset backoff
     return this.start(name)
   }
 
@@ -287,6 +331,7 @@ export class AgentManager {
   }
 
   async stopAll() {
+    this.shuttingDown = true
     const names = [...this.processes.keys()]
     await Promise.all(names.map(name => this.stop(name)))
   }

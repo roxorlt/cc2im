@@ -53,15 +53,9 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     {
       onEvict: (agentId: string) => {
         ctx.emit('agent:evicted', agentId)
-        const agentConfig = agentManager.getConfig().agents[agentId]
-        if (agentConfig?.autoStart && agentManager.isManaged(agentId)) {
-          console.log(`[hub] Auto-restarting evicted agent "${agentId}"`)
-          setTimeout(() => {
-            const result = agentManager.start(agentId)
-            if (!result.success) {
-              console.log(`[hub] Failed to restart "${agentId}": ${result.error}`)
-            }
-          }, 5000)
+        // Kill the process — child.on('exit') in AgentManager will handle restart
+        if (agentManager.isManaged(agentId)) {
+          agentManager.killForRestart(agentId)
         }
       },
       onAgentOnline: (agentId: string) => ctx.emit('agent:online', agentId),
