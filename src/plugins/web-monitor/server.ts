@@ -18,6 +18,8 @@ import { SOCKET_DIR } from '../../shared/socket.js'
 import type { HubEvent, HubEventData } from '../../shared/types.js'
 import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
+import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
+import { CronScheduler } from '../cron-scheduler/scheduler.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 
@@ -339,6 +341,87 @@ export async function startWeb(options: { port: number; ctx?: HubContext }) {
           res.end(JSON.stringify({ error: err.message }))
         }
       })
+      return
+    }
+
+    // --- Cron Jobs API ---
+
+    if (url.pathname === '/api/cron-jobs' && req.method === 'POST') {
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      req.on('end', () => {
+        try {
+          const { name, agentId, scheduleType, scheduleValue, timezone, message } = JSON.parse(body)
+
+          if (!name || !scheduleType || !scheduleValue || !message) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Missing required fields: name, scheduleType, scheduleValue, message' }))
+            return
+          }
+
+          // Calculate nextRun
+          const sched = new CronScheduler({} as any)
+          const tz = timezone || 'Asia/Shanghai'
+          const nextRun = sched.calcNextRun(scheduleType, scheduleValue, tz)
+
+          if (!nextRun) {
+            const errMsg = scheduleType === 'once' ? 'Once schedule is in the past' : `Invalid schedule: ${scheduleType} "${scheduleValue}"`
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: errMsg }))
+            return
+          }
+
+          const job = createJob({
+            name, agentId: agentId || 'brain', scheduleType, scheduleValue,
+            timezone: tz, message, enabled: true, nextRun, createdBy: 'dashboard',
+          })
+
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(job))
+        } catch (err: any) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
+      return
+    }
+
+    if (url.pathname.startsWith('/api/cron-jobs/') && req.method === 'DELETE') {
+      const jobId = decodeURIComponent(url.pathname.slice('/api/cron-jobs/'.length))
+      const ok = deleteJob(jobId)
+      res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(ok ? { success: true } : { error: 'Job not found' }))
+      return
+    }
+
+    if (url.pathname.startsWith('/api/cron-jobs/') && req.method === 'PATCH') {
+      const jobId = decodeURIComponent(url.pathname.slice('/api/cron-jobs/'.length))
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      req.on('end', () => {
+        try {
+          const updates = JSON.parse(body)
+          const ok = updateJob(jobId, updates)
+          res.writeHead(ok ? 200 : 404, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(ok ? { success: true } : { error: 'Job not found' }))
+        } catch (err: any) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
+      return
+    }
+
+    if (url.pathname === '/api/cron-jobs') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      try {
+        const jobs = listJobs()
+        const data = jobs.map(j => ({ ...j, recentRuns: getRecentRuns(j.id, 5) }))
+        res.end(JSON.stringify(data))
+      } catch (err: any) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err.message }))
+      }
       return
     }
 
