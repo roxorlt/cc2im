@@ -35,6 +35,12 @@ export interface MessageEntry {
   receivedAt: string
 }
 
+export interface QrLoginState {
+  channelId: string
+  qrUrl: string
+  status: 'pending' | 'scanned' | 'confirmed' | 'expired'
+}
+
 interface Snapshot {
   agents: AgentStatus[]
   hubConnected: boolean
@@ -52,6 +58,7 @@ export function useWebSocket() {
   const [logs, setLogs] = useState<Array<{ source: string; line: string; ts: string }>>([])
   const [channels, setChannels] = useState<ChannelInfo[]>([])
   const [nicknames, setNicknames] = useState<Map<string, string>>(new Map())
+  const [qrLogin, setQrLogin] = useState<QrLoginState | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
 
   const connect = useCallback(() => {
@@ -86,6 +93,15 @@ export function useWebSocket() {
           }
           setNicknames(map)
         }
+        return
+      }
+
+      if (msg.type === 'qr_status') {
+        setQrLogin({
+          channelId: msg.channelId,
+          qrUrl: msg.qrUrl,
+          status: msg.status,
+        })
         return
       }
 
@@ -152,5 +168,5 @@ export function useWebSocket() {
     return () => wsRef.current?.close()
   }, [connect])
 
-  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames }
+  return { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, nicknames, setNicknames, qrLogin, setQrLogin }
 }
