@@ -141,6 +141,14 @@ export class WeixinConnection {
     await this.bot.run()
   }
 
+  async startTyping(userId: string) {
+    try { await this.bot.sendTyping(userId) } catch {}
+  }
+
+  async stopTyping(userId: string) {
+    try { await this.bot.stopTyping(userId) } catch {}
+  }
+
   async send(userId: string, text: string) {
     const chunks = formatChunks(splitIntoChunks(text))
     const cachedMsg = this.recentMessages.get(userId)

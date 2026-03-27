@@ -10,12 +10,16 @@ import { SOCKET_DIR } from '../../shared/socket.js'
 import { WeixinConnection } from './connection.js'
 import { PermissionManager } from './permission.js'
 
+const TYPING_ACK_DELAY_MS = 10_000 // 10s 后发"处理中"
+
 export function createWeixinPlugin(): Cc2imPlugin {
   let weixin: WeixinConnection
   let permissionMgr: PermissionManager
   let cleanupInterval: ReturnType<typeof setInterval>
   const lastUserByAgent = new Map<string, string>()
   let lastGlobalUser: string | null = null
+  // Per-agent pending ack timer: agentId → { userId, timer }
+  const pendingAck = new Map<string, { userId: string; timer: ReturnType<typeof setTimeout> }>()
 
   return {
     name: 'weixin',
@@ -23,10 +27,32 @@ export function createWeixinPlugin(): Cc2imPlugin {
       weixin = new WeixinConnection()
       permissionMgr = new PermissionManager()
 
+      /** Clear pending ack timer for an agent (called when agent responds) */
+      function clearPendingAck(agentId: string) {
+        const pending = pendingAck.get(agentId)
+        if (pending) {
+          clearTimeout(pending.timer)
+          pendingAck.delete(agentId)
+          weixin.stopTyping(pending.userId).catch(() => {})
+        }
+      }
+
+      /** Start typing indicator + delayed ack for a user→agent message */
+      function startPendingAck(agentId: string, userId: string) {
+        clearPendingAck(agentId) // clear any previous
+        weixin.startTyping(userId).catch(() => {})
+        const timer = setTimeout(async () => {
+          pendingAck.delete(agentId)
+          await weixin.send(userId, `⏳ 收到，正在处理...`).catch(() => {})
+        }, TYPING_ACK_DELAY_MS)
+        pendingAck.set(agentId, { userId, timer })
+      }
+
       // --- Spoke → WeChat: handle spoke messages ---
       ctx.on('spoke:message', async (agentId: string, msg: any) => {
         switch (msg.type) {
           case 'reply': {
+            clearPendingAck(agentId)
             console.log(`[hub] Reply from ${agentId} to ${msg.userId}: ${msg.text.slice(0, 100)}`)
             ctx.broadcastMonitor({ kind: 'message_out', agentId, userId: msg.userId, text: msg.text, timestamp: new Date().toISOString() })
             await weixin.send(msg.userId, msg.text)
@@ -46,6 +72,7 @@ export function createWeixinPlugin(): Cc2imPlugin {
             break
           }
           case 'send_file': {
+            clearPendingAck(agentId)
             const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
             const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm'])
             const ext = msg.filePath.split('.').pop()?.toLowerCase() || ''
@@ -137,7 +164,9 @@ export function createWeixinPlugin(): Cc2imPlugin {
           mediaPath: incomingMsg.mediaPath ?? undefined,
           timestamp: incomingMsg.timestamp?.toISOString() ?? new Date().toISOString(),
         })
-        if (!sent) {
+        if (sent) {
+          startPendingAck(routed.agentId, userId)
+        } else {
           console.log(`[hub] Message queued for offline agent "${routed.agentId}"`)
           await weixin.send(userId, `📬 ${routed.agentId} 暂时离线，消息已排队，上线后自动投递。`)
         }
