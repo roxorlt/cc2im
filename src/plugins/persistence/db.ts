@@ -14,6 +14,7 @@ export function openDb(): Database.Database {
   if (db) return db
   db = new Database(DB_PATH)
   db.pragma('journal_mode = WAL')
+  db.pragma('wal_autocheckpoint = 1000')
   db.pragma('busy_timeout = 5000')
 
   db.exec(`
