@@ -37,7 +37,7 @@ export class WeixinChannel implements Cc2imChannel {
     this.setStatus('connecting')
     try {
       await this.weixin.login(this.id)
-      this.weixin.restoreContextCache()
+      this.weixin.restoreContextCache(this.id)
       this.registerMessageBridge()
       this.weixin.startListening()
 
@@ -59,7 +59,7 @@ export class WeixinChannel implements Cc2imChannel {
   }
 
   async disconnect(): Promise<void> {
-    this.weixin.saveContextCache()
+    this.weixin.saveContextCache(this.id)
     this.weixin.stop()
     this.setStatus('disconnected')
   }
