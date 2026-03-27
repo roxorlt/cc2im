@@ -272,7 +272,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
               if (result.status === 'confirmed' && result.credentials) {
                 clearInterval(poll)
                 activeQrPolls.delete(channelId)
-                saveCredentials(result.credentials)
+                saveCredentials(result.credentials, channelId)
                 // Reconnect channel with new credentials
                 try {
                   await ctx!.reconnectChannel(channelId)

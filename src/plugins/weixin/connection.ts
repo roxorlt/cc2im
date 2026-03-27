@@ -6,9 +6,9 @@
 import { WeixinBot } from '@pinixai/weixin-bot'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
-import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { downloadMedia, cleanupMedia } from './media.js'
+import { loadCredentials, CRED_PATH } from './qr-login.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
 import { uploadMedia } from './media-upload.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
@@ -76,11 +76,15 @@ export class WeixinConnection {
     } catch {}
   }
 
-  async login(): Promise<string> {
-    const credPath = join(homedir(), '.weixin-bot', 'credentials.json')
-    if (!existsSync(credPath)) {
+  async login(channelId?: string): Promise<string> {
+    // Load per-channel credentials (falls back to global file)
+    const channelCreds = loadCredentials(channelId)
+    if (!channelCreds) {
       throw new Error('未找到微信登录凭证! 请先运行: cc2im login')
     }
+
+    // Write per-channel creds to the global path so the SDK picks them up
+    writeFileSync(CRED_PATH, JSON.stringify(channelCreds, null, 2) + '\n', { mode: 0o600 })
 
     console.log('[hub] 使用已保存的凭证登录微信...')
     const creds = await this.bot.login()
