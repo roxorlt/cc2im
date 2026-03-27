@@ -1,6 +1,8 @@
 # cc2im
 
-微信 IM 网关，连接多个本地 Claude Code 实例。通过 @mention 将微信消息路由到不同的 CC workspace。
+[English](./README.en.md) | 中文
+
+微信 IM 网关，连接多个本地 Claude Code 实例。通过微信消息远程控制你的 AI agent。
 
 ## 架构
 
@@ -8,10 +10,12 @@
 手机微信
   ↓ iLink Bot API (long-poll)
 ┌──────────────────────────────────┐
-│  cc2im-hub (launchd daemon)      │
-│  · WeixinBot（唯一微信连接）       │
-│  · Agent Router（@mention 路由）  │
-│  · Agent Manager（生命周期管理）   │
+│  cc2im hub (launchd daemon)      │
+│  · WeChat 连接（多账号支持）       │
+│  · @mention 路由                  │
+│  · Agent 生命周期管理              │
+│  · Web Dashboard (:3721)         │
+│  · Cron 定时任务调度               │
 └──────────┬───────────────────────┘
            │ Unix socket
     ┌──────┴──────┐
@@ -19,7 +23,6 @@
 ┌─────────┐  ┌─────────┐
 │ Spoke 1 │  │ Spoke N │
 │ (MCP)   │  │ (MCP)   │
-│         │  │         │
 │ CC #1   │  │ CC #N   │
 │ ~/brain │  │ ~/proj  │
 └─────────┘  └─────────┘
@@ -31,6 +34,8 @@
 npm install -g cc2im
 ```
 
+**环境要求：** macOS, Node.js 22+, [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+
 ## 快速开始
 
 ```bash
@@ -40,43 +45,53 @@ cc2im login
 # 2. 注册第一个 agent
 cc2im agent register brain ~/brain
 
-# 3. 安装为后台服务（macOS）
+# 3. 安装为后台服务
 cc2im install
 
-# 完成！通过微信发消息即可。
-# 用 @brain 指定目标 agent。
+# 完成！在微信里发消息即可。
 ```
 
 ## 命令
 
-```
-cc2im login              微信扫码登录
-cc2im hub                启动 hub（前台调试，不启动 agent）
-cc2im start              启动 hub + 所有 autoStart agent
-cc2im agent start <name> 前台启动指定 agent（调试用）
-cc2im agent list         列出所有 agent 配置
-
-cc2im install            安装 launchd 后台服务
-cc2im uninstall          卸载 launchd 服务
-cc2im status             查看运行状态
-cc2im logs               查看实时日志
-```
+| 命令 | 说明 |
+|------|------|
+| `cc2im login` | 微信扫码登录 |
+| `cc2im start` | 启动 hub + 所有 autoStart agent |
+| `cc2im hub` | 仅启动 hub（调试用） |
+| `cc2im web` | 仅启动 Web Dashboard |
+| `cc2im agent register <name> <dir>` | 注册 agent |
+| `cc2im agent list` | 列出 agent 配置 |
+| `cc2im agent start <name>` | 前台启动 agent（调试用） |
+| `cc2im install` | 安装 launchd 后台服务 |
+| `cc2im uninstall` | 卸载 launchd 服务 |
+| `cc2im status` | 查看运行状态 |
+| `cc2im logs` | 查看实时日志 |
 
 ## 微信指令
 
-运行后，通过微信消息控制 agent：
-
+- `消息` — 发送到默认 agent
 - `@agent 消息` — 路由到指定 agent
-- `消息`（无 @）— 路由到默认 agent
 - `@agent 重启` — 重启 agent（清空上下文）
 
-管理指令由默认 agent（brain）通过自然语言处理：
+管理指令由默认 agent 的 Claude 通过自然语言处理：
 
-- `启动 demo` — 启动 agent
-- `停止 demo` — 停止 agent
+- `启动/停止 <agent>` — 管理 agent 生命周期
 - `状态` — 列出所有 agent 及状态
 - `注册 agent 叫 X，目录是 /path` — 注册新 agent
-- `注销 X` — 注销 agent
+
+## Web Dashboard
+
+启动后访问 `http://127.0.0.1:3721`，可查看：
+
+- 实时消息流和 agent 状态
+- Token 用量和费用统计
+- 多微信账号管理（扫码登录/断开）
+- Cron 定时任务管理
+- 实时日志
+
+## 多微信账号
+
+支持同时登录多个微信账号。在 Dashboard 的 Channels 页面添加新 channel，扫码登录即可。每个 channel 可以绑定默认 agent，消息会根据来源 channel 路由。
 
 ## 配置
 
@@ -86,24 +101,20 @@ cc2im logs               查看实时日志
 ~/.cc2im/
 ├── hub.sock           Unix socket
 ├── agents.json        Agent 注册表
-├── credentials.json   微信登录凭证
-├── hub.log            Hub 标准输出日志
-├── hub.error.log      Hub 错误日志
+├── channels.json      Channel 配置
+├── cc2im.db           消息持久化 + Cron 数据（SQLite）
+├── hub.log            Hub 日志
 └── agents/
     └── <name>/
-        ├── claude.log       CC 输出（通过 expect pty）
-        ├── spoke.log        Spoke 调试日志
-        └── always-allow.json  权限缓存
+        └── spoke.log  Spoke 日志
 ```
+
+微信凭证存储在 `~/.weixin-bot/`（每个 channel 独立文件）。
 
 ## 已知限制
 
-cc2im 针对**单用户场景**设计和测试（一个人通过微信控制自己的多个 agent）。在此场景下可以放心使用。
+cc2im 为**单用户场景**设计（一个人通过微信控制自己的多个 agent）。多用户并发时，权限审批和回复路由可能出现竞争。
 
-如果需要让**多个微信用户共享同一组 agent**，请注意：当前的用户身份追踪基于 `lastUserId`（最近一条消息的发送者），在多用户并发发消息时，回复和权限审批可能被路由到错误的用户。建议在多用户部署前实现消息级关联 ID，确保回复和权限请求能精确匹配到触发操作的用户。
+## License
 
-## 环境要求
-
-- macOS（launchd 集成）
-- Node.js 22+
-- Claude Code CLI (`claude`)
+[MIT](./LICENSE)

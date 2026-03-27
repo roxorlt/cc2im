@@ -4,9 +4,9 @@ import { SOCKET_DIR } from './socket.js'
 import type { ChannelType } from './channel.js'
 
 export interface ChannelConfig {
-  id: string           // "weixin-roxor"
+  id: string           // "weixin-alice"
   type: ChannelType    // "weixin"
-  accountName: string  // "roxor"
+  accountName: string  // "alice"
 }
 
 const CHANNELS_JSON_PATH = join(SOCKET_DIR, 'channels.json')

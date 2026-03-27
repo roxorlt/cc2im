@@ -3,7 +3,7 @@
  *
  * Composition adapter: translates between the WeChat-specific WeixinConnection
  * API and the platform-agnostic Cc2imChannel interface. Supports multi-instance
- * via constructor-injected id/label (e.g. "weixin-roxor", "weixin-family").
+ * via constructor-injected id/label (e.g. "weixin-alice", "weixin-bob").
  */
 
 import type {

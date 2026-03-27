@@ -68,7 +68,7 @@ function MsgHeader({ event, nicknames, onSetNickname }: {
   // Show nickname if set, otherwise show last 8 chars of userId
   const displayName = nickname || (event.userId.length > 8 ? '...' + event.userId.slice(-8) : event.userId)
 
-  // Channel label: channelId is like "weixin-roxor" → display as-is
+  // Channel label: channelId is like "weixin-alice" → display as-is
   const channelLabel = event.channelId
 
   if (editing) {
