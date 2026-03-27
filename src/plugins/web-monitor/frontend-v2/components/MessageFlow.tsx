@@ -1,14 +1,63 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { MessageEntry } from '../hooks/useWebSocket'
 
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
+function MediaContent({ mediaUrl, msgType }: { mediaUrl: string; msgType: string }) {
+  const [failed, setFailed] = useState(false)
+
+  if (failed) {
+    return <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>媒体已过期</span>
+  }
+
+  if (msgType === 'image') {
+    return (
+      <img
+        src={mediaUrl}
+        onError={() => setFailed(true)}
+        style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 6, display: 'block', cursor: 'pointer' }}
+        onClick={() => window.open(mediaUrl, '_blank')}
+      />
+    )
+  }
+
+  if (msgType === 'video') {
+    return (
+      <video
+        src={mediaUrl}
+        controls
+        onError={() => setFailed(true)}
+        style={{ maxWidth: '100%', maxHeight: 300, borderRadius: 6, display: 'block' }}
+      />
+    )
+  }
+
+  if (msgType === 'voice') {
+    return null // voice rendered as text label in bubble
+  }
+
+  // file or unknown
+  const filename = mediaUrl.split('/').pop() || 'file'
+  const ext = filename.split('.').pop()?.toLowerCase()
+  const icon = ext === 'pdf' ? '📄' : '📎'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 140, maxWidth: '100%' }}>
+      <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+      <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</div>
+      <a href={mediaUrl} target="_blank" rel="noopener" style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', flexShrink: 0 }}>
+        查看
+      </a>
+    </div>
+  )
+}
+
 function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: number; animate?: boolean }) {
   const ev = entry.event
   const isOut = ev.kind === 'message_out'
   const isPerm = ev.kind === 'permission_request' || ev.kind === 'permission_verdict'
+  const hasMedia = ev.mediaUrl && ev.msgType && ev.msgType !== 'text'
 
   if (isPerm) {
     const icon = ev.kind === 'permission_request' ? '⚡' : (ev.behavior === 'allow' || ev.behavior === 'always' ? '✓' : '✗')
@@ -44,10 +93,19 @@ function MsgBubble({ entry, index, animate }: { entry: MessageEntry; index: numb
         background: isOut ? 'rgba(16, 185, 129, 0.08)' : 'var(--bg-card)',
         border: `1px solid ${isOut ? 'rgba(16, 185, 129, 0.15)' : 'var(--border)'}`,
         fontSize: 12.5, lineHeight: 1.6,
-        whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const,
         color: 'var(--text)',
+        ...(hasMedia ? {} : { whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const }),
       }}>
-        {ev.text}
+        {hasMedia && ev.msgType !== 'voice' && <MediaContent mediaUrl={ev.mediaUrl!} msgType={ev.msgType!} />}
+        {ev.msgType === 'voice' ? (
+          <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
+            <span style={{ color: 'var(--text-muted)' }}>[语音消息]</span> {ev.text}
+          </span>
+        ) : ev.text && !hasMedia ? (
+          <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' as const }}>
+            {ev.text}
+          </span>
+        ) : null}
       </div>
       <div style={{
         fontSize: 9, color: 'var(--text-muted)',

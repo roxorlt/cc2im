@@ -3,8 +3,10 @@
  * Owns: WeixinConnection, PermissionManager, user tracking, message routing.
  */
 
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import type { Cc2imPlugin, HubContext } from '../../shared/plugin.js'
+import { SOCKET_DIR } from '../../shared/socket.js'
 import { WeixinConnection } from './connection.js'
 import { PermissionManager } from './permission.js'
 
@@ -45,8 +47,11 @@ export function createWeixinPlugin(): Cc2imPlugin {
           }
           case 'send_file': {
             const IMAGE_EXTS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'])
+            const VIDEO_EXTS = new Set(['mp4', 'mov', 'avi', 'webm'])
             const ext = msg.filePath.split('.').pop()?.toLowerCase() || ''
             const isImage = IMAGE_EXTS.has(ext)
+            const isVideo = VIDEO_EXTS.has(ext)
+            const msgType = isImage ? 'image' : isVideo ? 'video' : 'file'
 
             try {
               if (isImage) {
@@ -54,12 +59,20 @@ export function createWeixinPlugin(): Cc2imPlugin {
               } else {
                 await weixin.sendFile(msg.userId, msg.filePath)
               }
+              // Copy to media dir so dashboard can preview
+              const mediaDir = join(SOCKET_DIR, 'media')
+              const mediaName = `${Date.now()}-${basename(msg.filePath)}`
+              try {
+                mkdirSync(mediaDir, { recursive: true })
+                copyFileSync(msg.filePath, join(mediaDir, mediaName))
+              } catch {}
               console.log(`[hub] File sent from ${agentId} to ${msg.userId}: ${msg.filePath}`)
               ctx.broadcastMonitor({
                 kind: 'message_out', agentId, userId: msg.userId,
-                text: isImage ? '[图片]' : `[文件] ${msg.filePath.split('/').pop()}`,
+                text: isImage ? '[图片]' : `[${msgType}] ${basename(msg.filePath)}`,
                 timestamp: new Date().toISOString(),
-                msgType: isImage ? 'image' : 'file',
+                msgType,
+                mediaUrl: `/media/${mediaName}`,
               })
             } catch (err: any) {
               console.error(`[hub] Failed to send file from ${agentId}: ${err.message}`)
