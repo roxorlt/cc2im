@@ -53,20 +53,19 @@ function loadAgentsJson() {
 function ensureDefaultConfig() {
   ensureSocketDir()
   if (!existsSync(AGENTS_JSON_PATH)) {
-    const defaultConfig = {
-      defaultAgent: 'brain',
-      agents: {
-        brain: {
-          name: 'brain',
-          cwd: join(homedir(), 'brain'),
-          claudeArgs: ['--effort', 'max'],
-          createdAt: new Date().toISOString().split('T')[0],
-          autoStart: true,
-        },
-      },
-    }
+    const defaultConfig = { defaultAgent: '', agents: {} }
     writeFileSync(AGENTS_JSON_PATH, JSON.stringify(defaultConfig, null, 2) + '\n')
-    console.log(`[cc2im] Created default config: ${AGENTS_JSON_PATH}`)
+  }
+}
+
+function checkAgentsExist() {
+  const config = loadAgentsJson()
+  if (!config || Object.keys(config.agents).length === 0) {
+    console.log(`\n  No agents registered yet. Quick setup:\n`)
+    console.log(`    1. cc2im login                          # WeChat QR login`)
+    console.log(`    2. cc2im agent register <name> <dir>    # e.g. cc2im agent register mybot ~/projects/mybot`)
+    console.log(`    3. cc2im start                          # start hub + agents\n`)
+    process.exit(1)
   }
 }
 
@@ -138,12 +137,14 @@ async function login() {
 
 async function runHub() {
   ensureDefaultConfig()
+  checkAgentsExist()
   const { startHub } = await import('./hub/index.js') as any
   await startHub({ autoStartAgents: false })
 }
 
 async function runStart() {
   ensureDefaultConfig()
+  checkAgentsExist()
   console.log('[cc2im] Starting hub + auto-start agents...')
   const { startHub } = await import('./hub/index.js') as any
   await startHub({ autoStartAgents: true })
@@ -197,15 +198,22 @@ function agentRegister(name: string, cwd: string) {
     console.error(`Directory "${cwd}" does not exist`)
     process.exit(1)
   }
+  const isFirst = Object.keys(config.agents).length === 0
   config.agents[name] = {
     name,
     cwd,
     claudeArgs: [],
     createdAt: new Date().toISOString().split('T')[0],
-    autoStart: false,
+    autoStart: isFirst,
+  }
+  if (isFirst || !config.defaultAgent) {
+    config.defaultAgent = name
   }
   writeFileSync(AGENTS_JSON_PATH, JSON.stringify(config, null, 2) + '\n')
   console.log(`[cc2im] Registered agent "${name}" → ${cwd}`)
+  if (isFirst) {
+    console.log(`[cc2im] Set as default agent (autoStart: true)`)
+  }
 }
 
 function agentDeregister(name: string) {
@@ -249,7 +257,7 @@ const arg = process.argv[4]
 switch (command) {
   case '--version':
   case '-v':
-    console.log('cc2im v0.1.0')
+    console.log('cc2im v0.2.0')
     break
 
   case 'login':
@@ -330,7 +338,7 @@ switch (command) {
   case '--help':
   case '-h':
   default:
-    console.log(`cc2im v0.1.0 — IM gateway for multiple Claude Code instances
+    console.log(`cc2im v0.2.0 — IM gateway for multiple Claude Code instances
 
 Usage:
   cc2im login              微信扫码登录
