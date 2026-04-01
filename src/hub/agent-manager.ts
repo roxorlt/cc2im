@@ -166,6 +166,7 @@ export class AgentManager {
 
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
+      '--continue',  // resume most recent session in this cwd (falls back to new session)
       ...(agent.claudeArgs || []),
     ]
 
