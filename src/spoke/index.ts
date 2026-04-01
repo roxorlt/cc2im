@@ -110,7 +110,8 @@ async function main() {
   // Connect MCP stdio first (CC is waiting for it)
   await connectTransport(server)
 
-  // Then connect to hub
+  // Then connect to hub (exit if hub is unreachable for too long)
+  socketClient.onReconnectGiveUp(() => gracefulExit('Hub unreachable, giving up reconnect'))
   await socketClient.connect()
 
   // Report ready

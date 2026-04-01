@@ -6,6 +6,7 @@ import type { HubToSpoke, SpokeToHub } from '../shared/types.js'
 
 const RECONNECT_INTERVAL = 3000
 const MAX_RECONNECT_INTERVAL = 30000
+const MAX_RECONNECT_DURATION_MS = 60_000 // give up after 60s of failed reconnects
 
 export class SpokeSocketClient {
   private socket: Socket | null = null
@@ -14,6 +15,8 @@ export class SpokeSocketClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectDelay = RECONNECT_INTERVAL
   private connected = false
+  private disconnectedSince: number | null = null
+  private onGiveUp: (() => void) | null = null
 
   constructor(agentId: string, onMessage: (msg: HubToSpoke) => void) {
     this.agentId = agentId
@@ -35,6 +38,7 @@ export class SpokeSocketClient {
       this.socket = socket
       this.connected = true
       this.reconnectDelay = RECONNECT_INTERVAL
+      this.disconnectedSince = null  // reset on successful connect
       socket.write(encodeFrame({ type: 'register', agentId: this.agentId, pid: process.pid }))
       console.log(`[spoke:${this.agentId}] Connected to hub`)
     })
@@ -63,8 +67,25 @@ export class SpokeSocketClient {
     })
   }
 
+  /** Register a callback invoked when reconnect attempts are exhausted (hub unreachable for too long). */
+  onReconnectGiveUp(handler: () => void) {
+    this.onGiveUp = handler
+  }
+
   private scheduleReconnect() {
     if (this.reconnectTimer) return
+
+    // Track how long we've been disconnected
+    if (this.disconnectedSince === null) {
+      this.disconnectedSince = Date.now()
+    }
+    const elapsed = Date.now() - this.disconnectedSince
+    if (elapsed > MAX_RECONNECT_DURATION_MS) {
+      console.log(`[spoke:${this.agentId}] Hub unreachable for ${Math.round(elapsed / 1000)}s, giving up`)
+      this.onGiveUp?.()
+      return
+    }
+
     console.log(`[spoke:${this.agentId}] Reconnecting in ${this.reconnectDelay / 1000}s...`)
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null

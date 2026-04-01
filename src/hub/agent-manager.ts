@@ -11,6 +11,7 @@ import { ensureMcpJson } from '../shared/mcp-config.js'
 import type { AgentConfig, AgentsConfig } from '../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
+const PGID_FILE_PATH = join(SOCKET_DIR, 'agent-pgids.json')
 const STOP_TIMEOUT_MS = 5000
 const RESTART_DELAY_MS = 5000
 const MAX_RESTART_ATTEMPTS = 5
@@ -29,6 +30,45 @@ export class AgentManager {
     this.config = this.loadConfig()
     this.getConnectedAgents = getConnectedAgents
     this.onEvent = onEvent
+    this.killOrphanProcesses()
+  }
+
+  /**
+   * Kill orphan agent processes from a previous hub session.
+   * Reads PGIDs saved by the previous hub, kills any still-alive process groups,
+   * then clears the file. Called once in constructor before any agents are started.
+   */
+  private killOrphanProcesses() {
+    try {
+      if (!existsSync(PGID_FILE_PATH)) return
+      const pgids: Record<string, number> = JSON.parse(readFileSync(PGID_FILE_PATH, 'utf8'))
+      let killed = 0
+      for (const [name, pgid] of Object.entries(pgids)) {
+        try {
+          process.kill(-pgid, 'SIGKILL') // kill entire process group
+          killed++
+          console.log(`[agent-manager] Killed orphan "${name}" (pgid ${pgid})`)
+        } catch {
+          // ESRCH = process group doesn't exist (already dead) — expected
+        }
+      }
+      if (killed > 0) {
+        console.log(`[agent-manager] Cleaned up ${killed} orphan process group(s)`)
+      }
+    } catch {}
+    // Clear the file — we'll write fresh PGIDs as agents start
+    this.savePgids()
+  }
+
+  /** Persist current agent PGIDs to disk for orphan cleanup on next startup. */
+  private savePgids() {
+    const pgids: Record<string, number> = {}
+    for (const [name, child] of this.processes) {
+      if (child.pid) pgids[name] = child.pid // detached child.pid === pgid
+    }
+    try {
+      writeFileSync(PGID_FILE_PATH, JSON.stringify(pgids) + '\n')
+    } catch {}
   }
 
   private loadConfig(): AgentsConfig {
@@ -171,6 +211,7 @@ export class AgentManager {
     child.on('exit', (code) => {
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
+      this.savePgids()
       this.onEvent?.('agent_stopped', name, { code })
 
       // Don't restart if: shutting down, or user explicitly stopped
@@ -212,6 +253,7 @@ export class AgentManager {
     })
 
     this.processes.set(name, child)
+    this.savePgids()
     this.onEvent?.('agent_started', name)
     return { success: true }
   }
