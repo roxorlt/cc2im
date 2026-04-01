@@ -15,9 +15,13 @@ import { PermissionManager, type UserRef } from '../weixin/permission.js'
 
 const TYPING_ACK_DELAY_MS = 10_000 // 10s before "processing..." ack
 
+const SLEEP_DETECT_INTERVAL_MS = 10_000  // check every 10s
+const SLEEP_THRESHOLD_MS = 30_000        // 30s gap = likely sleep/wake
+
 export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugin {
   let permissionMgr: PermissionManager
   let cleanupInterval: ReturnType<typeof setInterval>
+  let sleepDetectInterval: ReturnType<typeof setInterval>
 
   const lastUserByAgent = new Map<string, UserRef>()
   const lastChannelByUser = new Map<string, string>() // userId -> channelId
@@ -25,6 +29,10 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
 
   // Per-agent pending ack timer: agentId -> { ref, timer }
   const pendingAck = new Map<string, { ref: UserRef; timer: ReturnType<typeof setTimeout> }>()
+
+  // Auto-reconnect state per channel
+  const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const reconnectAttempts = new Map<string, number>()
 
   // Channel lookup by id
   const channelMap = new Map<string, Cc2imChannel>()
@@ -243,7 +251,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           }
         })
 
-        // Channel status change -> monitor broadcast
+        // Channel status change -> monitor broadcast + auto-reconnect on expired
         ch.onStatusChange((status, detail) => {
           console.log(`[channel-manager] ${ch.label} status: ${status}${detail ? ` (${detail})` : ''}`)
           ctx.broadcastMonitor({
@@ -252,11 +260,48 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
             timestamp: new Date().toISOString(),
             text: `${ch.label}: ${status}${detail ? ` — ${detail}` : ''}`,
           })
+
+          if (status === 'expired') {
+            scheduleReconnect(ch)
+          } else if (status === 'connected') {
+            // Reset backoff on successful connect
+            reconnectAttempts.delete(ch.id)
+            const timer = reconnectTimers.get(ch.id)
+            if (timer) { clearTimeout(timer); reconnectTimers.delete(ch.id) }
+          }
         })
       }
 
       for (const ch of channels) {
         wireChannel(ch)
+      }
+
+      // --- Auto-reconnect with exponential backoff ---
+
+      function scheduleReconnect(ch: Cc2imChannel, overrideDelaySec?: number) {
+        if (reconnectTimers.has(ch.id)) return // already scheduled
+
+        const attempt = (reconnectAttempts.get(ch.id) ?? 0) + 1
+        reconnectAttempts.set(ch.id, attempt)
+        const delaySec = overrideDelaySec ?? Math.min(10 * Math.pow(2, attempt - 1), 300) // 10s, 20s, 40s, ..., max 5min
+        console.log(`[channel-manager] Scheduling reconnect for "${ch.id}" in ${delaySec}s (attempt ${attempt})`)
+
+        const timer = setTimeout(async () => {
+          reconnectTimers.delete(ch.id)
+          console.log(`[channel-manager] Auto-reconnecting "${ch.id}" (attempt ${attempt})...`)
+          try {
+            await ch.disconnect()
+          } catch {}
+          try {
+            await ch.connect()
+            console.log(`[channel-manager] "${ch.id}" auto-reconnected successfully`)
+          } catch (err: any) {
+            console.error(`[channel-manager] "${ch.id}" auto-reconnect failed: ${err.message}`)
+            // onStatusChange will fire 'expired' or 'disconnected' → re-schedule
+          }
+        }, delaySec * 1000)
+
+        reconnectTimers.set(ch.id, timer)
       }
 
       // --- Runtime channel add/remove ---
@@ -371,6 +416,28 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
       // Permission cleanup interval
       cleanupInterval = setInterval(() => permissionMgr.cleanup(), 60_000)
 
+      // --- Sleep/wake detection ---
+      // macOS sleep kills TCP connections; detect wake via timer gap and reconnect immediately
+      let lastTick = Date.now()
+      sleepDetectInterval = setInterval(() => {
+        const now = Date.now()
+        const elapsed = now - lastTick
+        lastTick = now
+        if (elapsed > SLEEP_THRESHOLD_MS) {
+          const gapSec = Math.round(elapsed / 1000)
+          console.log(`[channel-manager] System wake detected (${gapSec}s gap), reconnecting all channels...`)
+          for (const ch of channelMap.values()) {
+            if (ch.getStatus() === 'connected' || ch.getStatus() === 'connecting') {
+              // Cancel any pending scheduled reconnect — we're doing it now
+              const pending = reconnectTimers.get(ch.id)
+              if (pending) { clearTimeout(pending); reconnectTimers.delete(ch.id) }
+              reconnectAttempts.delete(ch.id)
+              scheduleReconnect(ch, 2) // 2s delay — let network stack settle after wake
+            }
+          }
+        }
+      }, SLEEP_DETECT_INTERVAL_MS)
+
       // --- Connect all channels ---
       for (const ch of channels) {
         try {
@@ -384,6 +451,10 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
 
     async destroy() {
       if (cleanupInterval) clearInterval(cleanupInterval)
+      if (sleepDetectInterval) clearInterval(sleepDetectInterval)
+      // Cancel pending reconnect timers
+      for (const timer of reconnectTimers.values()) clearTimeout(timer)
+      reconnectTimers.clear()
       // Disconnect all channels
       for (const ch of channels) {
         try {

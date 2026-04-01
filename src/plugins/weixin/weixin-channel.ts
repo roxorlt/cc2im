@@ -36,9 +36,19 @@ export class WeixinChannel implements Cc2imChannel {
   async connect(): Promise<void> {
     this.setStatus('connecting')
     try {
+      // Fresh connection on every connect() — avoids Node.js fetch reusing
+      // stale TCP connections from a previous session (e.g. after macOS sleep/wake)
+      this.weixin = new WeixinConnection()
       await this.weixin.login(this.id)
       this.weixin.restoreContextCache(this.id)
       this.registerMessageBridge()
+      // Detect stalled polling (too many consecutive timeouts) → mark expired
+      this.weixin.onStalled(() => {
+        if (this.status !== 'disconnected') {
+          this.setStatus('expired', 'Long-poll stalled: consecutive timeouts')
+        }
+      })
+
       this.weixin.startListening()
 
       // startPolling is a long-running loop — fire-and-forget.

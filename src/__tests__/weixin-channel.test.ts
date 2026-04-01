@@ -21,6 +21,7 @@ const mockSendImage = vi.fn()
 const mockSendFile = vi.fn()
 const mockStartTyping = vi.fn()
 const mockStopTyping = vi.fn()
+const mockOnStalled = vi.fn()
 
 vi.mock('../plugins/weixin/connection.js', () => ({
   WeixinConnection: vi.fn().mockImplementation(function (this: any) {
@@ -36,6 +37,7 @@ vi.mock('../plugins/weixin/connection.js', () => ({
     this.sendFile = mockSendFile
     this.startTyping = mockStartTyping
     this.stopTyping = mockStopTyping
+    this.onStalled = mockOnStalled
   }),
 }))
 

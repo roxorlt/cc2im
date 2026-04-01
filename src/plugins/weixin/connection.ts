@@ -32,12 +32,37 @@ const ALLOWED_USERS = process.env.CC2IM_ALLOWED_USERS
 
 const CONTEXT_CACHE_PATH = join(SOCKET_DIR, 'weixin-context.json')
 
+const STALL_THRESHOLD = 5 // consecutive errors before declaring stalled
+
 export class WeixinConnection {
-  private bot = new WeixinBot()
+  private bot: WeixinBot
   private recentMessages = new Map<string, any>() // userId -> raw msg for reply
   private onIncoming: OnMessageCallback | null = null
   private listening = false
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
+  private consecutiveErrors = 0
+  private onStalledCallback: (() => void) | null = null
+
+  constructor() {
+    this.bot = new WeixinBot({
+      onError: (error) => this.handlePollError(error),
+    })
+  }
+
+  /** Register a callback fired when polling hits too many consecutive errors. */
+  onStalled(handler: () => void) {
+    this.onStalledCallback = handler
+  }
+
+  private handlePollError(_error: unknown) {
+    this.consecutiveErrors++
+    if (this.consecutiveErrors >= STALL_THRESHOLD && this.onStalledCallback) {
+      console.error(`[weixin] ${this.consecutiveErrors} consecutive poll errors, signalling stall`)
+      this.onStalledCallback()
+      // Reset so callback isn't fired on every subsequent error
+      this.consecutiveErrors = 0
+    }
+  }
 
   setMessageHandler(handler: OnMessageCallback) {
     this.onIncoming = handler
@@ -122,6 +147,9 @@ export class WeixinConnection {
     this.cleanupTimer = setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
 
     this.bot.onMessage(async (msg: any) => {
+      // Successful message = connection healthy
+      this.consecutiveErrors = 0
+
       // Allowlist check
       if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(msg.userId)) {
         console.log(`[hub] Blocked message from unlisted user: ${msg.userId}`)
