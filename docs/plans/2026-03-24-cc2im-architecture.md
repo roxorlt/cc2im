@@ -1,3 +1,8 @@
+---
+excalidraw-plugin: parsed
+tags:
+  - excalidraw
+---
 # cc2im Architecture & Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
@@ -1067,3 +1072,12 @@ Phase 3 全部一次通过，无额外代码改动：
 - **AC-3.4** kill hub 进程后 5s 内 launchd 自动重启，新 PID 50812（旧 49979）
 - **AC-3.5** `cc2im uninstall` 正确 unload + 删除 plist
 - **AC-3.6** `cc2im logs` 输出 hub.log + error.log 实时日志
+
+==⚠  Switch to EXCALIDRAW VIEW in the MORE OPTIONS menu of this document. ⚠== You can decompress Drawing data with the command palette: 'Decompress current Excalidraw file'. For more info check in plugin settings under 'Saving'
+
+
+## Drawing
+```compressed-json
+N4IgLgngDgpiBcIYA8DGBDANgSwCYCd0B3EAGhADcZ8BnbAewDsEAmcm+gV31TkQAswYKDXgB6MQHNsYfpwBGAOlT0AtmIBeNCtlQbs6RmPry6uA4wC0KDDgLFLUTJ2lH8MTDHQ0YNMWHRJMRZFFgBGULIkT1UYRjAaBABtAF1ydCgoAGUAsD5QSXw8LOwNPkZOTExyHRgiACF0VABrQq5GXABhekx6fAQQAGIAM1GxkABfCaA==
+```
+%%
