@@ -38,7 +38,7 @@ export class WeixinChannel implements Cc2imChannel {
     try {
       // Fresh connection on every connect() — avoids Node.js fetch reusing
       // stale TCP connections from a previous session (e.g. after macOS sleep/wake)
-      this.weixin = new WeixinConnection()
+      this.weixin = new WeixinConnection(this.id)
       await this.weixin.login(this.id)
       this.weixin.restoreContextCache(this.id)
       this.registerMessageBridge()
