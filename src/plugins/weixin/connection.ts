@@ -6,9 +6,10 @@
 import { WeixinBot } from '@pinixai/weixin-bot'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
+import { homedir } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { downloadMedia, cleanupMedia } from './media.js'
-import { loadCredentials, CRED_PATH } from './qr-login.js'
+import { loadCredentials, CRED_PATH, CRED_DIR } from './qr-login.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
 import { uploadMedia } from './media-upload.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
@@ -43,8 +44,15 @@ export class WeixinConnection {
   private consecutiveErrors = 0
   private onStalledCallback: (() => void) | null = null
 
-  constructor() {
+  constructor(channelId?: string) {
+    // Each channel gets its own tokenPath so the SDK reads/writes isolated credentials.
+    // Without this, all channels share ~/.weixin-bot/credentials.json and the last
+    // login overwrites everyone else's credentials.
+    const tokenPath = channelId
+      ? join(CRED_DIR, `credentials-${channelId}.json`)
+      : undefined  // SDK default (~/.weixin-bot/credentials.json)
     this.bot = new WeixinBot({
+      tokenPath,
       onError: (error) => this.handlePollError(error),
     })
   }
@@ -114,19 +122,20 @@ export class WeixinConnection {
   }
 
   async login(channelId?: string): Promise<string> {
-    // Load per-channel credentials (falls back to global file)
-    const channelCreds = loadCredentials(channelId)
-    if (!channelCreds) {
-      throw new Error('未找到微信登录凭证! 请先运行: cc2im login')
+    // Per-channel credentials are handled by the SDK's tokenPath (set in constructor).
+    // For backward compat: if no per-channel file exists, copy from global file.
+    if (channelId) {
+      const channelCredPath = join(CRED_DIR, `credentials-${channelId}.json`)
+      if (!existsSync(channelCredPath)) {
+        // Fall back: try loading from our qr-login module (checks per-channel then global)
+        const fallback = loadCredentials(channelId)
+        if (fallback) {
+          writeFileSync(channelCredPath, JSON.stringify(fallback, null, 2) + '\n', { mode: 0o600 })
+        }
+      }
     }
 
-    // Write per-channel creds to the global path so the SDK picks them up.
-    // TODO: Race condition if two channels call login() concurrently — channel B
-    // could overwrite the global file before channel A's bot.login() reads it.
-    // Currently safe because channel-manager starts channels sequentially.
-    writeFileSync(CRED_PATH, JSON.stringify(channelCreds, null, 2) + '\n', { mode: 0o600 })
-
-    console.log('[hub] 使用已保存的凭证登录微信...')
+    console.log(`[hub] 使用已保存的凭证登录微信 (${channelId || 'default'})...`)
     const creds = await this.bot.login()
     console.log(`[hub] 微信连接成功! accountId=${creds.accountId}`)
 

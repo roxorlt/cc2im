@@ -13,22 +13,11 @@
 - ~~Typing indicator + 延迟确认~~ — 10s 无回复自动发"收到，正在处理..." (2026-03-27)
 - ~~Channel 抽象层~~ — Cc2imChannel 接口 + WeixinChannel + ChannelManager 插件 + channel-aware 路由 (2026-03-27)
 - ~~Dashboard 改版~~ — 折叠式侧栏导航 + Channel 管理页 + 消息 channel/昵称标注 + 昵称编辑 + channel 筛选 + channel CRUD API + channels.json 持久化 (2026-03-27)
-
-## 进行中
-
-### Agent 重启竞争修复 (`fix/agent-restart-race` 分支)
-
-**问题**：onEvict (socket 层) 和 child.on('exit') (进程层) 同时触发 auto-restart，竞争产生重复 CC 进程，导致消息被回复两次。
-
-**修复**：
-- onEvict 只杀进程（killForRestart），不直接重启
-- child.on('exit') 是唯一重启入口
-- stop() 设 stoppedManually 标记，用户主动停止不重启
-- 退避机制：5min 内连续崩溃 5 次后放弃重启，延迟递增 5s/10s/15s/20s/25s
-
-**状态**：已实现，待验证后合版
-
----
+- ~~Agent 重启竞争修复~~ — onEvict 只杀进程，child.on('exit') 唯一重启入口，stoppedManually 标记，退避机制 5min/5次放弃 (2026-03-27)
+- ~~测试框架 + 自动化~~ — vitest 102 个测试（单元+集成），PostToolUse/PreToolUse hooks 自动跑测试，git pre-commit hook（tsc + tests），pre-merge-testing 提醒 (2026-03-28)
+- ~~CLAUDE.md 架构文档~~ — 项目架构、消息流、目录结构、插件事件、设计决策，供跨会话上下文对齐 (2026-03-28)
+- ~~Code review 6 项修复~~ — 媒体路径安全 resolve+startsWith、web-api 测试改用真实代码、AgentManager 38 个测试、hook 去硬编码、tsc 类型检查 (2026-03-28)
+- ~~Dashboard QR 扫码~~ — /api/channels/login API + QrLoginOverlay 前端组件 + WebSocket 状态推送，Dashboard 内完成扫码授权 (2026-03-27)
 
 ## 待讨论 / 待规划
 
@@ -70,23 +59,7 @@
 
 ---
 
-### 3. Dashboard 新增频道 — GUI 内展示 QR 码扫码
-
-**背景**：当前新增微信频道后提示"请在终端扫码"，用户体验差。应在 Dashboard 内直接展示二维码完成扫码授权。
-
-**实现方案**：
-- 服务端新增 `/api/channels/login` API：调用 iLink `get_bot_qrcode` 获取 QR 码 URL + token
-- 服务端轮询 `get_qrcode_status`，通过 WebSocket 推送扫码状态（scaned → confirmed → expired）
-- 前端 AddChannelDialog 创建后展示 QR 码图片 + 状态提示（等待扫码 / 已扫码请确认 / 已过期）
-- 确认后自动保存 credentials 并连接 channel
-
-**参考代码**：`src/cli.ts:75-130` login() 函数已有完整的 QR 获取 + 轮询逻辑
-
-**来源**：2026-03-27 Dashboard 改版测试反馈
-
----
-
-### 4. 权限管理体系
+### 3. 权限管理体系
 
 **背景**：多用户场景下需要细粒度权限控制。
 
@@ -109,6 +82,46 @@
 **待调研**：OpenClaw 和 NanoClaw 的权限模型实现
 
 **来源**：2026-03-27 多用户场景讨论 + 2026-03-25 NanoClaw 对比
+
+---
+
+### ~~4. Agent Session 恢复~~ ✅
+
+- 已实现：agent-manager 启动 CC 时传 `--continue`，自动恢复当前 cwd 最近的 session（无历史则降级为新 session）(2026-04-01)
+
+### 5. Cron 可观测性（Bad Case: xlist-scraper 静默失败）
+
+**Bad Case**：cron 触发 scrapeList，Chrome 打开了，但 DB 没新数据。持续数小时无人知晓。cc2im 只记了 "delivered"，不知道执行成功还是失败。
+
+**需要做的**：
+1. 记录任务执行结果（成功/失败/耗时）到 SQLite
+2. 持久化 cron 执行日志（触发时间、agent、状态、错误摘要）
+3. 连续 N 次失败时推送微信告警
+
+**来源**：`/Users/roxor/brain/30-projects/xlist-scraper/docs/cc2im-cron-observability.md` (2026-04-01)
+
+---
+
+### 6. Cron 独立进程执行（不占用 agent 会话）
+
+**背景**：CC 单线程，cron 任务（如 xlist-scraper）占用 brain 会话数分钟，期间所有用户消息排队。
+
+**核心思路**：cron 触发时不发消息给 agent，而是 Hub 开一个临时 CC CLI 进程（`claude -p "执行任务..." --print`），跑完拿到结果后杀掉。
+
+**好处**：
+- Agent 永远空闲等用户消息，回复秒达
+- Cron 跑多久都不阻塞任何人
+- 天然并行——多个 cron 各自独立进程
+- 拿到 exit code + stdout，顺便解决 TODO #5 的可观测性
+
+**改动点**：
+- `cron-scheduler` 插件：触发时 spawn `claude -p "{message}" --print` 而非 deliverToAgent
+- 收集 stdout/stderr + exit code 写入 SQLite cron_runs 表
+- 失败时推送微信告警
+
+**降级方案**：如果 cron 任务需要 agent 的长对话上下文（如"继续上次的分析"），仍走 deliverToAgent 路径。两种模式可通过 cron job 配置切换。
+
+**来源**：2026-04-01 多 channel 测试 + 用户提出的"临时进程"思路
 
 ---
 

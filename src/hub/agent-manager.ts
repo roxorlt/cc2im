@@ -16,6 +16,9 @@ const STOP_TIMEOUT_MS = 5000
 const RESTART_DELAY_MS = 5000
 const MAX_RESTART_ATTEMPTS = 5
 const RESTART_WINDOW_MS = 5 * 60_000 // 5 min — reset counter if stable for this long
+const CONNECT_TIMEOUT_MS = 60_000     // if spoke doesn't connect within this window after spawn,
+                                      // assume init got stuck (e.g. unknown interactive prompt)
+                                      // and restart without --continue to unblock
 
 export class AgentManager {
   private processes = new Map<string, ChildProcess>()
@@ -25,6 +28,8 @@ export class AgentManager {
   private stoppedManually = new Set<string>()  // agents stopped by user intent
   private shuttingDown = false                  // suppress auto-restart during hub shutdown
   private restartAttempts = new Map<string, { count: number; firstAt: number }>() // backoff tracking
+  private skipContinueOnce = new Set<string>()  // agents to start without --continue on next spawn
+                                                // (used when previous session stalled during init)
 
   constructor(getConnectedAgents: () => string[], onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void) {
     this.config = this.loadConfig()
@@ -164,9 +169,14 @@ export class AgentManager {
     const agentDir = join(SOCKET_DIR, 'agents', name)
     mkdirSync(agentDir, { recursive: true })
 
+    // Skip --continue if the previous spawn stalled during init — start fresh instead
+    const skipContinue = this.skipContinueOnce.delete(name)
+    if (skipContinue) {
+      console.log(`[agent-manager] "${name}": starting without --continue (previous session stalled during init)`)
+    }
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
-      '--continue',  // resume most recent session in this cwd (falls back to new session)
+      ...(skipContinue ? [] : ['--continue']),  // resume most recent session unless last attempt stalled
       ...(agent.claudeArgs || []),
     ]
 
@@ -180,12 +190,22 @@ export class AgentManager {
       `log_file -a {${logPath}}`,
       `spawn claude ${claudeArgs.map(a => `{${a}}`).join(' ')}`,
       '',
-      '# Auto-approve workspace trust prompt if it appears',
-      'set timeout 30',
+      '# Auto-handle initialization prompts:',
+      '#   - Workspace trust prompt ("confirm" text)',
+      '#   - "Resume from summary" session picker (shown by --continue for old/large sessions)',
+      '# exp_continue keeps listening so multiple prompts in sequence are all handled.',
+      '# If 60s passes with no further known prompts, assume CC is up and switch to eof wait.',
+      'set timeout 60',
       'expect {',
+      '  "Resume from summary" {',
+      '    after 500',
+      '    send "1\\r"',
+      '    exp_continue',
+      '  }',
       '  "confirm" {',
       '    after 500',
       '    send "\\r"',
+      '    exp_continue',
       '  }',
       '  timeout {}',
       '}',
@@ -209,7 +229,19 @@ export class AgentManager {
       detached: true,  // new process group — allows killing entire tree with -pid
     })
 
+    // Fallback: if spoke doesn't connect within CONNECT_TIMEOUT_MS, assume init got stuck
+    // (e.g. an unknown interactive prompt blocked CC) and kill the process tree.
+    // On next auto-restart, --continue is skipped so CC starts with a fresh session.
+    const connectTimer = setTimeout(() => {
+      if (!this.processes.has(name)) return                         // already exited/stopped
+      if (this.getConnectedAgents().includes(name)) return          // healthy, no action needed
+      console.warn(`[agent-manager] "${name}" did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — killing to restart without --continue`)
+      this.skipContinueOnce.add(name)
+      this.killProcessTree(child)
+    }, CONNECT_TIMEOUT_MS)
+
     child.on('exit', (code) => {
+      clearTimeout(connectTimer)
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
       this.savePgids()
