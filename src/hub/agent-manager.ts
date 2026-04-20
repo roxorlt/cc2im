@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { spawn, ChildProcess } from 'node:child_process'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { ensureMcpJson } from '../shared/mcp-config.js'
+import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from '../shared/claude-args.js'
 import type { AgentConfig, AgentsConfig } from '../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
@@ -177,7 +178,7 @@ export class AgentManager {
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
       ...(skipContinue ? [] : ['--continue']),  // resume most recent session unless last attempt stalled
-      ...(agent.claudeArgs || []),
+      ...mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, agent.claudeArgs || []),  // permission-mode/allowedTools/effort defaults + per-agent override
     ]
 
     // Use `expect` to allocate a pseudo-tty so CC enters interactive mode.
