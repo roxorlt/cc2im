@@ -115,6 +115,20 @@ cc2im install
 
 cc2im 为**单用户场景**设计（一个人通过微信控制自己的多个 agent）。多用户并发时，权限审批和回复路由可能出现竞争。
 
+## 更新日志
+
+### v0.2.2 (2026-04-20)
+
+- **fix**: CC 启动时若 `--continue` 触发 "Resume from summary" 会话选择器，expect 脚本现在会自动选第一项；新增 60s 连接超时兜底，卡住时自动 kill 并用新会话重试
+- **fix**: 每个微信 channel 使用独立凭证文件（`credentials-{channelId}.json`），不再互相覆盖，解决新增第二个账号导致第一个掉线的问题
+
+### v0.2.1 (2026-04-07)
+
+- 新用户首次启动引导文案优化
+- 休眠/唤醒后自动重连微信，连续 poll 超时时触发重连
+- Hub 启动时清理孤儿 agent 进程
+- 重启后通过 `--continue` 恢复 agent 的最近 session
+
 ## License
 
 [MIT](./LICENSE)
