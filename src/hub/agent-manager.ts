@@ -243,6 +243,7 @@ export class AgentManager {
 
     child.on('exit', (code) => {
       clearTimeout(connectTimer)
+      const wasConnected = this.getConnectedAgents().includes(name)
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
       this.savePgids()
@@ -258,6 +259,13 @@ export class AgentManager {
 
       const agentConfig = this.config.agents[name]
       if (!agentConfig?.autoStart) return
+
+      // If CC exited fast with non-zero code before ever connecting, --continue probably failed
+      // (no prior session for a new agent). Skip --continue on next restart to start fresh.
+      if (!wasConnected && code !== 0 && code !== null && !skipContinue) {
+        console.log(`[agent-manager] "${name}" exited before connecting — will skip --continue on next restart`)
+        this.skipContinueOnce.add(name)
+      }
 
       // Backoff: track consecutive restarts within time window
       const now = Date.now()
