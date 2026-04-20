@@ -117,6 +117,10 @@ cc2im 为**单用户场景**设计（一个人通过微信控制自己的多个 
 
 ## 更新日志
 
+### v0.2.3 (2026-04-20)
+
+- **feat**: 启动 CC 实例时默认注入 `--permission-mode auto --allowedTools '*' --effort max`，让 agent 在微信场景下自主执行不卡权限审批。per-agent `claudeArgs`（`~/.cc2im/agents.json`）仍可按 flag 名覆盖
+
 ### v0.2.2 (2026-04-20)
 
 - **fix**: CC 启动时若 `--continue` 触发 "Resume from summary" 会话选择器，expect 脚本现在会自动选第一项；新增 60s 连接超时兜底，卡住时自动 kill 并用新会话重试
