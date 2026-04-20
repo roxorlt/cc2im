@@ -22,6 +22,7 @@ import { spawn } from 'node:child_process'
 import qrterm from 'qrcode-terminal'
 import { SOCKET_DIR, ensureSocketDir } from './shared/socket.js'
 import { ensureMcpJson } from './shared/mcp-config.js'
+import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from './shared/claude-args.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
 const BASE_URL = 'https://ilinkai.weixin.qq.com'
@@ -169,7 +170,7 @@ function startAgentForeground(name: string) {
 
   const claudeArgs = [
     '--dangerously-load-development-channels', 'server:cc2im',
-    ...(agent.claudeArgs || []),
+    ...mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, agent.claudeArgs || []),
   ]
 
   const cmd = process.platform === 'darwin' ? 'caffeinate' : 'claude'
