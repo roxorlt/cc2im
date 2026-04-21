@@ -1,6 +1,6 @@
 {
   "name": "cc2im",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "IM gateway for multiple local Claude Code instances",
   "author": "roxorlt",
   "license": "MIT",

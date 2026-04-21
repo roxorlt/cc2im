@@ -117,6 +117,10 @@ cc2im 为**单用户场景**设计（一个人通过微信控制自己的多个 
 
 ## 更新日志
 
+### v0.2.4 (2026-04-21)
+
+- **fix**: 新注册的 agent 没有历史 session 时，`claude --continue` 立即 exit 1，之前会连续 5 次重启失败被标记阵亡；现在检测到快速非零退出会在下次重启时自动跳过 `--continue` 用新会话启动
+
 ### v0.2.3 (2026-04-20)
 
 - **feat**: 启动 CC 实例时默认注入 `--permission-mode auto --allowedTools '*' --effort max`，让 agent 在微信场景下自主执行不卡权限审批。per-agent `claudeArgs`（`~/.cc2im/agents.json`）仍可按 flag 名覆盖
