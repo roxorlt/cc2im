@@ -157,14 +157,25 @@ export class AgentManager {
 
     const agent = this.config.agents[name]
 
+    // Cwd may have been renamed/deleted after registration. Fail this agent
+    // gracefully instead of letting downstream fs writes crash the hub process.
+    if (!existsSync(agent.cwd)) {
+      return { success: false, error: `Agent "${name}" cwd does not exist: ${agent.cwd}` }
+    }
+
     // Resolve spoke script path (works for both tsx/src and compiled/dist)
     const dir = import.meta.dirname!
     const spokeTs = join(dir, '..', 'spoke', 'index.ts')
     const spokeJs = join(dir, '..', 'spoke', 'index.js')
     const spokeScript = existsSync(spokeTs) ? spokeTs : spokeJs
 
-    // Write .mcp.json in agent's cwd
-    ensureMcpJson(agent.cwd, spokeScript, name)
+    // Write .mcp.json in agent's cwd. Isolate any fs error so a single bad
+    // agent can't bring down the hub (and with it the web dashboard).
+    try {
+      ensureMcpJson(agent.cwd, spokeScript, name)
+    } catch (err: any) {
+      return { success: false, error: `Failed to write .mcp.json for "${name}": ${err?.message ?? err}` }
+    }
 
     // Ensure agent log directory
     const agentDir = join(SOCKET_DIR, 'agents', name)
@@ -409,13 +420,19 @@ export class AgentManager {
 
   startAutoAgents() {
     for (const [name, agent] of Object.entries(this.config.agents)) {
-      if (agent.autoStart) {
+      if (!agent.autoStart) continue
+      // Each agent's startup is isolated: a failure (return-error or unexpected
+      // throw) must not stop the loop, otherwise one bad config tears down the
+      // whole hub including the web dashboard.
+      try {
         const result = this.start(name)
         if (result.success) {
           console.log(`[agent-manager] Auto-started "${name}"`)
         } else {
           console.log(`[agent-manager] Failed to auto-start "${name}": ${result.error}`)
         }
+      } catch (err: any) {
+        console.error(`[agent-manager] Unexpected error auto-starting "${name}": ${err?.message ?? err}`)
       }
     }
   }
