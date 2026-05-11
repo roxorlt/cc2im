@@ -24,12 +24,16 @@ vi.mock('node:child_process', () => ({
 }))
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { ensureMcpJson } from '../shared/mcp-config.js'
 import { AgentManager } from '../hub/agent-manager.js'
 
 // Typed mocks for convenience
 const mockExistsSync = existsSync as ReturnType<typeof vi.fn>
 const mockReadFileSync = readFileSync as ReturnType<typeof vi.fn>
 const mockWriteFileSync = writeFileSync as ReturnType<typeof vi.fn>
+const mockSpawn = spawn as ReturnType<typeof vi.fn>
+const mockEnsureMcpJson = ensureMcpJson as ReturnType<typeof vi.fn>
 
 // Default agents.json content for tests
 const emptyConfig = { defaultAgent: 'brain', agents: {} }
@@ -48,6 +52,8 @@ function makeManager(
   mockExistsSync.mockReset()
   mockReadFileSync.mockReset()
   mockWriteFileSync.mockReset()
+  mockSpawn.mockReset()
+  mockEnsureMcpJson.mockReset()
 
   // existsSync: agents.json → true if config provided, cwd paths → true by default
   mockExistsSync.mockImplementation((p: string) => {
@@ -175,6 +181,122 @@ describe('AgentManager.deregister()', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toContain('not found')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// start() — error paths only (happy path requires real spawn)
+// ---------------------------------------------------------------------------
+describe('AgentManager.start() — error paths', () => {
+  it('fails for unknown agent', () => {
+    const { manager } = makeManager()
+    const result = manager.start('ghost')
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('not found in config')
+  })
+
+  it('fails when agent cwd does not exist (renamed/deleted after registration)', () => {
+    const stale = { ...brainAgent, name: 'stale', cwd: '/projects/was-renamed' }
+    const existing = { defaultAgent: 'stale', agents: { stale } }
+    const { manager } = makeManager([], existing)
+
+    // Pretend the cwd is gone (but spoke script + agents.json still resolve true)
+    mockExistsSync.mockImplementation((p: string) => {
+      if (typeof p !== 'string') return true
+      if (p === '/projects/was-renamed') return false
+      return true
+    })
+
+    const result = manager.start('stale')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('cwd does not exist')
+    expect(result.error).toContain('/projects/was-renamed')
+    // Critical: we must have failed BEFORE calling ensureMcpJson — the original
+    // bug was ensureMcpJson throwing ENOENT and crashing the entire hub process.
+    expect(mockEnsureMcpJson).not.toHaveBeenCalled()
+  })
+
+  it('catches ensureMcpJson failures and returns an error instead of throwing', () => {
+    const existing = { defaultAgent: 'brain', agents: { brain: brainAgent } }
+    const { manager } = makeManager([], existing)
+
+    mockEnsureMcpJson.mockImplementationOnce(() => {
+      const err: any = new Error("ENOENT: no such file or directory, open '/projects/brain/.mcp.json'")
+      err.code = 'ENOENT'
+      throw err
+    })
+
+    const result = manager.start('brain')
+
+    expect(result.success).toBe(false)
+    expect(result.error).toContain('Failed to write .mcp.json')
+    expect(result.error).toContain('ENOENT')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// startAutoAgents() — failure isolation
+// ---------------------------------------------------------------------------
+describe('AgentManager.startAutoAgents() — failure isolation', () => {
+  it('continues to remaining agents when one has a missing cwd', () => {
+    const broken = { ...brainAgent, name: 'broken', cwd: '/projects/gone', autoStart: true }
+    const good = { ...brainAgent, name: 'good', cwd: '/projects/good', autoStart: true }
+    const existing = { defaultAgent: 'good', agents: { broken, good } }
+    const { manager } = makeManager([], existing)
+
+    // /projects/gone is missing, everything else resolves
+    mockExistsSync.mockImplementation((p: string) => {
+      if (typeof p !== 'string') return true
+      if (p === '/projects/gone') return false
+      return true
+    })
+
+    // spawn must return a child-shaped object so the "good" agent's full start()
+    // path completes without throwing.
+    mockSpawn.mockReturnValue({
+      pid: 99999,
+      on: vi.fn(),
+    } as any)
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    expect(() => manager.startAutoAgents()).not.toThrow()
+
+    const lines = logSpy.mock.calls.map(c => c.join(' '))
+    expect(lines.some(l => l.includes('Failed to auto-start "broken"') && l.includes('cwd does not exist'))).toBe(true)
+    expect(lines.some(l => l.includes('Auto-started "good"'))).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('survives an unexpected throw from start() (defense in depth)', () => {
+    const a = { ...brainAgent, name: 'a', cwd: '/projects/a', autoStart: true }
+    const b = { ...brainAgent, name: 'b', cwd: '/projects/b', autoStart: true }
+    const existing = { defaultAgent: 'a', agents: { a, b } }
+    const { manager } = makeManager([], existing)
+
+    // First start() throws via spawn; second succeeds.
+    let call = 0
+    mockSpawn.mockImplementation(() => {
+      call++
+      if (call === 1) throw new Error('boom: simulated spawn failure')
+      return { pid: 42, on: vi.fn() } as any
+    })
+
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(() => manager.startAutoAgents()).not.toThrow()
+
+    const errLines = errSpy.mock.calls.map(c => c.join(' '))
+    expect(errLines.some(l => l.includes('Unexpected error auto-starting "a"'))).toBe(true)
+
+    const logLines = logSpy.mock.calls.map(c => c.join(' '))
+    expect(logLines.some(l => l.includes('Auto-started "b"'))).toBe(true)
+
+    logSpy.mockRestore()
+    errSpy.mockRestore()
   })
 })
 
