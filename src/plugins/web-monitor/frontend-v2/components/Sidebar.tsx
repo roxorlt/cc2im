@@ -15,7 +15,19 @@ interface SidebarProps {
   onAddTask: () => void
 }
 
+const SIDEBAR_COLLAPSED_KEY = 'cc2im.sidebar.collapsed'
+
+function readInitialCollapsed(): boolean {
+  try {
+    const v = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+    if (v === '0') return false
+    if (v === '1') return true
+  } catch {}
+  return true
+}
+
 export function Sidebar(props: SidebarProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(readInitialCollapsed)
   const [chatExpanded, setChatExpanded] = useState(true)
   const [channelsExpanded, setChannelsExpanded] = useState(true)
   const [tasksExpanded, setTasksExpanded] = useState(true)
@@ -29,13 +41,78 @@ export function Sidebar(props: SidebarProps) {
     expired: 'var(--red)',
   }
 
+  const toggleCollapsed = () => {
+    setCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0') } catch {}
+      return next
+    })
+  }
+
+  if (collapsed) {
+    const connectedAgents = props.agents.filter(a => a.status === 'connected').length
+    return (
+      <div style={{
+        width: 32, borderRight: '1px solid var(--border)',
+        background: 'var(--bg-panel)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        padding: '8px 0', gap: 12, flexShrink: 0,
+      }}>
+        <button
+          onClick={toggleCollapsed}
+          title="展开侧栏"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-dim)', fontSize: 14, padding: 4,
+            lineHeight: 1, userSelect: 'none',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+        >›</button>
+        <CollapsedIcon
+          glyph="◐" label={`对话 ${connectedAgents}/${props.agents.length}`}
+          active={props.page === 'chat'}
+          onClick={() => props.onPageChange('chat')}
+        />
+        <CollapsedIcon
+          glyph="✉" label={`Channels ${props.channels.length}`}
+          active={props.page === 'channels'}
+          onClick={() => props.onPageChange('channels')}
+        />
+        <CollapsedIcon
+          glyph="⏱" label={`定时任务 ${props.cronJobs.length}`}
+          active={props.page === 'tasks'}
+          onClick={() => props.onPageChange('tasks')}
+        />
+      </div>
+    )
+  }
+
   return (
     <div style={{
       width: 220, borderRight: '1px solid var(--border)',
       background: 'var(--bg-panel)',
       display: 'flex', flexDirection: 'column',
-      overflow: 'hidden',
+      overflow: 'hidden', flexShrink: 0,
     }}>
+      {/* Collapse toggle */}
+      <div style={{
+        display: 'flex', justifyContent: 'flex-end',
+        padding: '4px 6px 0',
+      }}>
+        <button
+          onClick={toggleCollapsed}
+          title="收起侧栏"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: 'var(--text-dim)', fontSize: 12, padding: 2,
+            lineHeight: 1, userSelect: 'none',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+        >‹</button>
+      </div>
+
       {/* Chat section */}
       <SectionHeader
         label="对话" count={props.agents.length}
@@ -134,6 +211,25 @@ export function Sidebar(props: SidebarProps) {
 
       <div style={{ flex: 1 }} />
     </div>
+  )
+}
+
+function CollapsedIcon({ glyph, label, active, onClick }: {
+  glyph: string; label: string; active: boolean; onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={label}
+      style={{
+        background: 'none', border: 'none', cursor: 'pointer',
+        padding: 4, lineHeight: 1, fontSize: 14,
+        color: active ? 'var(--accent)' : 'var(--text-dim)',
+        transition: 'color 0.12s',
+      }}
+      onMouseEnter={e => { if (!active) e.currentTarget.style.color = 'var(--text)' }}
+      onMouseLeave={e => { if (!active) e.currentTarget.style.color = 'var(--text-dim)' }}
+    >{glyph}</button>
   )
 }
 
