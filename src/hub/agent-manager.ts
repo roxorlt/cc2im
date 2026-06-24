@@ -5,7 +5,7 @@
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawn, ChildProcess } from 'node:child_process'
+import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { ensureMcpJson } from '../shared/mcp-config.js'
 import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from '../shared/claude-args.js'
@@ -45,23 +45,30 @@ export class AgentManager {
    * then clears the file. Called once in constructor before any agents are started.
    */
   private killOrphanProcesses() {
+    const names = new Set<string>()
     try {
-      if (!existsSync(PGID_FILE_PATH)) return
-      const pgids: Record<string, number> = JSON.parse(readFileSync(PGID_FILE_PATH, 'utf8'))
-      let killed = 0
-      for (const [name, pgid] of Object.entries(pgids)) {
-        try {
-          process.kill(-pgid, 'SIGKILL') // kill entire process group
-          killed++
-          console.log(`[agent-manager] Killed orphan "${name}" (pgid ${pgid})`)
-        } catch {
-          // ESRCH = process group doesn't exist (already dead) — expected
+      if (existsSync(PGID_FILE_PATH)) {
+        const pgids: Record<string, number> = JSON.parse(readFileSync(PGID_FILE_PATH, 'utf8'))
+        let killed = 0
+        for (const [name, pgid] of Object.entries(pgids)) {
+          names.add(name)
+          try {
+            process.kill(-pgid, 'SIGKILL') // kill entire process group (caffeinate + expect)
+            killed++
+            console.log(`[agent-manager] Killed orphan "${name}" (pgid ${pgid})`)
+          } catch {
+            // ESRCH = process group doesn't exist (already dead) — expected
+          }
+        }
+        if (killed > 0) {
+          console.log(`[agent-manager] Cleaned up ${killed} orphan process group(s)`)
         }
       }
-      if (killed > 0) {
-        console.log(`[agent-manager] Cleaned up ${killed} orphan process group(s)`)
-      }
     } catch {}
+    // The pgid kill above misses any claude that called setsid() and escaped the group
+    // (a hung claude survives otherwise). Reap those directly via their persisted PIDs.
+    for (const name of Object.keys(this.config.agents)) names.add(name)
+    for (const name of names) this.killDetachedClaude(name, 'SIGKILL')
     // Clear the file — we'll write fresh PGIDs as agents start
     this.savePgids()
   }
@@ -151,7 +158,7 @@ export class AgentManager {
       }
       console.log(`[agent-manager] Agent "${name}" has stale process (not connected), restarting`)
       const stale = this.processes.get(name)!
-      this.killProcessTree(stale)
+      this.killProcessTree(stale, name)
       this.processes.delete(name)
     }
 
@@ -197,10 +204,17 @@ export class AgentManager {
     // The expect script auto-approves the workspace trust prompt and then waits.
     const logPath = join(agentDir, 'claude.log')
     const expectScriptPath = join(agentDir, 'start.exp')
+    const claudePidPath = join(agentDir, 'claude.pid')
 
+    // Capture claude's real PID: it calls setsid() and escapes the caffeinate/expect
+    // process group, so `kill -pgid` alone can't reap it. We persist the PID so
+    // killProcessTree / orphan cleanup can hard-kill a hung claude directly.
     const expectScript = [
       `log_file -a {${logPath}}`,
-      `spawn claude ${claudeArgs.map(a => `{${a}}`).join(' ')}`,
+      `set cc_pid [spawn claude ${claudeArgs.map(a => `{${a}}`).join(' ')}]`,
+      `set pidfh [open {${claudePidPath}} w]`,
+      `puts $pidfh $cc_pid`,
+      `close $pidfh`,
       '',
       '# Auto-handle initialization prompts:',
       '#   - Workspace trust prompt ("confirm" text)',
@@ -249,7 +263,7 @@ export class AgentManager {
       if (this.getConnectedAgents().includes(name)) return          // healthy, no action needed
       console.warn(`[agent-manager] "${name}" did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — killing to restart without --continue`)
       this.skipContinueOnce.add(name)
-      this.killProcessTree(child)
+      this.killProcessTree(child, name)
     }, CONNECT_TIMEOUT_MS)
 
     child.on('exit', (code) => {
@@ -323,7 +337,7 @@ export class AgentManager {
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         // Force kill entire process tree if SIGTERM didn't work
-        this.killProcessTree(child)
+        this.killProcessTree(child, name)
         this.processes.delete(name)
         console.log(`[agent-manager] Force-killed "${name}" (SIGTERM timeout)`)
         resolve({ success: true })
@@ -337,7 +351,7 @@ export class AgentManager {
       })
 
       // SIGTERM the entire process group
-      this.killProcessTree(child, 'SIGTERM')
+      this.killProcessTree(child, name, 'SIGTERM')
     })
   }
 
@@ -364,15 +378,56 @@ export class AgentManager {
   }
 
   /** Kill an agent's entire process tree (caffeinate → expect → claude).
-   *  Uses negative PID to kill the process group created by detached: true. */
-  private killProcessTree(child: ChildProcess, signal: NodeJS.Signals = 'SIGKILL') {
+   *  Uses negative PID to kill the process group created by detached: true.
+   *  `claude` calls setsid() and escapes that group, so it is killed separately
+   *  via its persisted PID (see killDetachedClaude). */
+  private killProcessTree(child: ChildProcess, name: string, signal: NodeJS.Signals = 'SIGKILL') {
     try {
-      // Kill entire process group (negative PID)
+      // Kill entire process group (negative PID) — caffeinate + expect
       process.kill(-child.pid!, signal)
     } catch {
       // Fallback: kill just the child
       try { child.kill(signal) } catch { /* already dead */ }
     }
+    // claude detached into its own process group — reap it directly
+    this.killDetachedClaude(name, signal)
+  }
+
+  private claudePidPath(name: string): string {
+    return join(SOCKET_DIR, 'agents', name, 'claude.pid')
+  }
+
+  /** Read the persisted claude PID for an agent (written by the expect script). */
+  private readClaudePid(name: string): number | null {
+    try {
+      const p = this.claudePidPath(name)
+      if (!existsSync(p)) return null
+      const pid = parseInt(readFileSync(p, 'utf8').trim(), 10)
+      return Number.isInteger(pid) && pid > 1 ? pid : null
+    } catch {
+      return null
+    }
+  }
+
+  /** Verify a PID is still THIS gateway's claude process before killing it.
+   *  Guards against PID reuse (a stale claude.pid pointing at an unrelated process). */
+  private isClaudeProcess(pid: number): boolean {
+    try {
+      const out = execSync(`ps -p ${pid} -o command=`, { encoding: 'utf8', timeout: 2000 })
+      return out.includes('claude') && out.includes('server:cc2im')
+    } catch {
+      return false // ps exits non-zero when the PID no longer exists
+    }
+  }
+
+  /** Hard-kill the detached claude process (and its own group) for an agent. No-op if
+   *  the PID is unknown, already gone, or has been reused by an unrelated process. */
+  private killDetachedClaude(name: string, signal: NodeJS.Signals = 'SIGKILL') {
+    const pid = this.readClaudePid(name)
+    if (pid == null || !this.isClaudeProcess(pid)) return
+    try { process.kill(-pid, signal) } catch { /* no own group */ }
+    try { process.kill(pid, signal) } catch { /* already dead */ }
+    console.log(`[agent-manager] Hard-killed detached claude for "${name}" (pid ${pid})`)
   }
 
   /** Kill an agent's process for restart (e.g., after heartbeat eviction).
@@ -381,24 +436,45 @@ export class AgentManager {
     const child = this.processes.get(name)
     if (child) {
       console.log(`[agent-manager] Killing "${name}" for restart`)
-      this.killProcessTree(child)
+      this.killProcessTree(child, name)
     }
   }
 
+  /** Hard restart: fully tear down an agent (incl. a hung claude that escaped its
+   *  process group) and start it fresh. Works whether the agent is stuck-starting,
+   *  running, or already stopped — the universal remote-recovery action. */
   async restart(name: string): Promise<{ success: boolean; error?: string }> {
-    // Only restart hub-managed agents. Externally started agents (foreground CLI)
-    // cannot be stopped by the hub — refuse rather than spawn a duplicate.
-    if (!this.processes.has(name)) {
-      const connected = this.getConnectedAgents()
-      if (connected.includes(name)) {
-        return { success: false, error: `Agent "${name}" was started externally. Stop it manually, then use start.` }
-      }
-      return { success: false, error: `Agent "${name}" is not running` }
+    if (!this.config.agents[name]) {
+      return { success: false, error: `Agent "${name}" is not registered` }
     }
-    await this.stop(name)
+    if (this.processes.has(name)) {
+      // Hub-managed process exists — stop() now reaps the detached claude too.
+      await this.stop(name)
+    } else {
+      // Not hub-managed — clear any lingering hung claude orphan before starting fresh.
+      this.killDetachedClaude(name, 'SIGKILL')
+    }
+    // stop()/kill resolves on process exit, but the spoke's socket-close is detected
+    // asynchronously. Wait until the hub marks it disconnected, else start() sees stale
+    // "connected" state and refuses. Bounded so a zombie spoke can't hang restart forever.
+    await this.waitForDisconnect(name, 6000)
     this.stoppedManually.delete(name)  // restart is intentional, allow re-start
     this.restartAttempts.delete(name)   // reset backoff
     return this.start(name)
+  }
+
+  /** Resolve once the agent's spoke is no longer connected, or after timeoutMs. */
+  private waitForDisconnect(name: string, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const startedAt = Date.now()
+      const tick = () => {
+        if (!this.getConnectedAgents().includes(name) || Date.now() - startedAt > timeoutMs) {
+          return resolve()
+        }
+        setTimeout(tick, 200)
+      }
+      tick()
+    })
   }
 
   updateEffort(name: string, effort: string): { success: boolean; error?: string } {
