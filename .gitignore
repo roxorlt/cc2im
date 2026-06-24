@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.js.map
 .mcp.json
-src/.DS_Store
+.DS_Store
 .claude/worktrees
 test-screenshots/
+.secrets/

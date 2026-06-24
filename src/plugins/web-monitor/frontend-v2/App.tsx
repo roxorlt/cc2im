@@ -47,6 +47,37 @@ export function App() {
   const tokenStats = useTokens()
   const usageStats = useUsage()
 
+  const [dsBalance, setDsBalance] = useState<string>('--')
+  const [dsLoading, setDsLoading] = useState(false)
+  const [dsError, setDsError] = useState<string | null>(null)
+
+  const fetchDeepseekBalance = async () => {
+    if (dsLoading) return
+    setDsLoading(true)
+    setDsError(null)
+    try {
+      const res = await fetch('/api/deepseek-balance')
+      const data = await res.json()
+      if (data.error) {
+        setDsError(data.error)
+        setDsBalance('ERR')
+      } else {
+        const cny = (data.balances || []).find((b: any) => b.currency === 'CNY') || data.balances?.[0]
+        if (cny) {
+          const n = parseFloat(cny.totalBalance)
+          setDsBalance(Number.isFinite(n) ? n.toFixed(2) : cny.totalBalance)
+        } else {
+          setDsBalance('--')
+        }
+      }
+    } catch (err: any) {
+      setDsError(err?.message || String(err))
+      setDsBalance('ERR')
+    } finally {
+      setDsLoading(false)
+    }
+  }
+
   const refreshChannels = async () => {
     try {
       const res = await fetch('/api/channels')
@@ -236,6 +267,16 @@ export function App() {
           {usageStats?.fiveHour && <UsageBar label="CURRENT" utilization={usageStats.fiveHour.utilization} resetsAt={usageStats.fiveHour.resetsAt} />}
           {usageStats?.sevenDay && <UsageBar label="WEEK" utilization={usageStats.sevenDay.utilization} resetsAt={usageStats.sevenDay.resetsAt} />}
         </>}
+        <span
+          onClick={fetchDeepseekBalance}
+          title={dsError || (dsLoading ? '查询中…' : '点击刷新')}
+          style={{
+            cursor: dsLoading ? 'wait' : 'pointer',
+            color: dsError ? 'var(--red)' : 'var(--text-dim)',
+            opacity: dsLoading ? 0.6 : 1,
+            userSelect: 'none',
+          }}
+        >ds-b:￥{dsBalance}</span>
         <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
           {channels.map(ch => (
             <span key={ch.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>

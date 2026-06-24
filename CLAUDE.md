@@ -127,6 +127,21 @@ src/
 | `agents/<name>/claude.log` | CC 输出日志 |
 | `agents/<name>/spoke.log` | Spoke 调试日志 |
 
+## 密钥与第三方 token
+
+所有第三方 API key、token、secret 一律放在项目根的 `.secrets/keys.env`（已被 `.gitignore` 排除）。
+
+```
+.secrets/
+└── keys.env       # KEY_NAME=value 格式，每行一条
+```
+
+- 新增 key 时直接在 `keys.env` 末尾追加一行 `NEW_KEY_NAME=`，并在注释里写清申请地址 / 用途
+- 代码里**先读 `process.env.X`**（兼容 launchd EnvironmentVariables 注入），**再 fallback 到 `.secrets/keys.env`**
+- 改完 `keys.env` 后必须重启 hub 才能生效：`launchctl kickstart -k gui/$(id -u)/com.cc2im.hub`
+- 已使用的 key 列表：
+  - `DEEPSEEK_API_KEY` — dashboard 底部 Deepseek-Billing 余额查询
+
 ## 通信协议
 
 Hub ↔ Spoke 使用 **ndjson**（每行一个 JSON + `\n`），通过 Unix socket 传输。

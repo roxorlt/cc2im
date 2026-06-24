@@ -10,6 +10,7 @@ import { readFileSync, existsSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { getTokenStats } from './token-stats.js'
 import { getUsageStats } from './usage-stats.js'
+import { getDeepseekBalance } from './deepseek-balance.js'
 import { readStats } from './stats-reader.js'
 import type { HubEventData } from '../../shared/types.js'
 import type { HubContext } from '../../shared/plugin.js'
@@ -85,6 +86,17 @@ export function createApiHandler(deps: ApiHandlerDeps) {
     if (url.pathname === '/api/usage') {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(getUsageStats()))
+      return
+    }
+
+    if (url.pathname === '/api/deepseek-balance') {
+      getDeepseekBalance().then(data => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(data))
+      }).catch(err => {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: err?.message || String(err), lastUpdated: new Date().toISOString() }))
+      })
       return
     }
 
