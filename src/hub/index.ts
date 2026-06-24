@@ -183,6 +183,19 @@ async function handleManagement(
       result = agentManager.start(msg.params!.name!)
       break
     }
+    case 'restart': {
+      // No isManaged guard: restart() must work for stopped / crashed / orphan-only
+      // agents too — that is the whole point of a recovery action. restart() itself
+      // rejects unregistered names.
+      // Self-restart would kill this agent before the result is delivered — ack first.
+      if (targetName === agentId) {
+        sendResult({ success: true })
+        await agentManager.restart(msg.params!.name!)
+        return
+      }
+      result = await agentManager.restart(msg.params!.name!)
+      break
+    }
     case 'stop': {
       if (!agentManager.isManaged(targetName!)) {
         result = { success: false, error: `Agent "${targetName}" is not managed by this hub (started externally)` }

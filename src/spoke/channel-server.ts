@@ -56,7 +56,7 @@ export function handleManagementResult(msg: HubToSpokeManagementResult) {
 function sendManagement(
   socketClient: SpokeSocketClient,
   agentId: string,
-  action: 'register' | 'deregister' | 'start' | 'stop' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update',
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'restart' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update',
   params?: Record<string, any>,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   return new Promise((resolve) => {
@@ -165,6 +165,17 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
       {
         name: 'agent_stop',
         description: '停止一个正在运行的 agent',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: 'agent 名称' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'agent_restart',
+        description: '硬重启一个 agent：彻底杀掉它的整棵进程树（含脱离进程组、卡死的 claude），再重新拉起。用于 agent 卡在 starting / 僵死无响应时的远程恢复。',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -337,6 +348,17 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
           content: [{ type: 'text' as const, text: result.success
             ? `Agent "${agentName}" 已停止`
             : `停止失败: ${result.error}` }],
+          isError: !result.success,
+        }
+      }
+
+      case 'agent_restart': {
+        const { name: agentName } = args as { name: string }
+        const result = await sendManagement(socketClient, agentId, 'restart', { name: agentName })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已硬重启`
+            : `重启失败: ${result.error}` }],
           isError: !result.success,
         }
       }
