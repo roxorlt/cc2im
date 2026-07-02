@@ -1,6 +1,44 @@
 import React, { useState } from 'react'
 import { QrLoginOverlay } from './QrLoginOverlay'
 import type { ChannelInfo, QrLoginState } from '../hooks/useWebSocket'
+import { relativeTime, uptimeLabel, healthLevel } from '../lib/health-format'
+
+const healthLevelColor: Record<string, string> = {
+  ok: 'var(--green)', warn: 'var(--amber)', bad: 'var(--red)',
+}
+
+function HealthBlock({ health }: { health: NonNullable<ChannelInfo['health']> }) {
+  const now = Date.now()
+  const level = healthLevel(health)
+  const cell = (label: string, value: string, danger = false) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.04em' }}>{label}</span>
+      <span style={{ fontSize: 12, color: danger ? 'var(--red)' : 'var(--text)', fontFamily: 'var(--font-mono)' }}>{value}</span>
+    </div>
+  )
+  return (
+    <div style={{
+      marginTop: 8, padding: '10px 12px', borderRadius: 6,
+      background: 'var(--bg-deep)', border: '1px solid var(--border)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <div style={{ width: 6, height: 6, borderRadius: '50%', background: healthLevelColor[level] }} />
+        <span style={{ fontSize: 10, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>HEALTH</span>
+        <span style={{ fontSize: 10, color: 'var(--text-muted)', marginLeft: 'auto' }}>
+          {uptimeLabel(health.connectedSince, now)}
+        </span>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+        {cell('连续错误', String(health.consecutiveErrors), health.consecutiveErrors >= 3)}
+        {cell('累计错误', String(health.totalErrors))}
+        {cell('stall', String(health.stallCount), health.stallCount > 0)}
+        {cell('重连', String(health.reconnectCount), health.reconnectCount > 0)}
+        {cell('最近收', relativeTime(health.lastReceiveAt, now))}
+        {cell('最近发', relativeTime(health.lastSendAt, now))}
+      </div>
+    </div>
+  )
+}
 
 interface ChannelsPageProps {
   channels: ChannelInfo[]
@@ -107,8 +145,11 @@ function ChannelCard({ channel, isLast, onRefreshChannels, onTriggerLogin }: { c
         </div>
       )}
 
+      {/* Health block */}
+      {channel.health && <HealthBlock health={channel.health} />}
+
       {/* Row 4: actions */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
         <button onClick={handleProbe} disabled={probing} style={btnStyle}>
           {probing ? '检查中...' : '检查连接'}
         </button>
@@ -229,6 +270,16 @@ function AddChannelDialog({ onClose, onTriggerLogin }: { onClose: () => void; on
 }
 
 export function ChannelsPage({ channels, showAddDialog, onCloseAddDialog, onRefreshChannels, qrLogin, onTriggerLogin, onCloseQr }: ChannelsPageProps) {
+  // Refresh health snapshots while this page is open (relative times + counters).
+  // Ref keeps the latest callback without resetting the interval on every render.
+  const refreshRef = React.useRef(onRefreshChannels)
+  refreshRef.current = onRefreshChannels
+  React.useEffect(() => {
+    const t = setInterval(() => refreshRef.current(), 5000)
+    refreshRef.current()
+    return () => clearInterval(t)
+  }, [])
+
   return (
     <div style={{ flex: 1, padding: '20px 24px', overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>

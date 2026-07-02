@@ -49,6 +49,12 @@ export class WeixinConnection {
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
   private consecutiveErrors = 0
   private onStalledCallback: (() => void) | null = null
+  // --- health counters (surfaced via getHealth) ---
+  private totalErrors = 0
+  private stallCount = 0
+  private lastReceiveAt: string | undefined
+  private lastSendAt: string | undefined
+  private connectedSince: string | undefined
 
   constructor(channelId?: string) {
     // Each channel gets its own tokenPath so the SDK reads/writes isolated credentials.
@@ -70,11 +76,34 @@ export class WeixinConnection {
 
   private handlePollError(_error: unknown) {
     this.consecutiveErrors++
+    this.totalErrors++
     if (this.consecutiveErrors >= STALL_THRESHOLD && this.onStalledCallback) {
       console.error(`[weixin] ${this.consecutiveErrors} consecutive poll errors, signalling stall`)
+      this.stallCount++
       this.onStalledCallback()
       // Reset so callback isn't fired on every subsequent error
       this.consecutiveErrors = 0
+    }
+  }
+
+  /** Health snapshot for the dashboard. Counters are per-connection (a fresh
+   *  WeixinConnection is created on every reconnect), except reconnectCount
+   *  which the channel-manager tracks and fills in at the channel layer. */
+  getHealthSnapshot(): {
+    consecutiveErrors: number
+    totalErrors: number
+    stallCount: number
+    lastReceiveAt?: string
+    lastSendAt?: string
+    connectedSince?: string
+  } {
+    return {
+      consecutiveErrors: this.consecutiveErrors,
+      totalErrors: this.totalErrors,
+      stallCount: this.stallCount,
+      lastReceiveAt: this.lastReceiveAt,
+      lastSendAt: this.lastSendAt,
+      connectedSince: this.connectedSince,
     }
   }
 
@@ -163,9 +192,12 @@ export class WeixinConnection {
     cleanupMedia()
     this.cleanupTimer = setInterval(cleanupMedia, 6 * 60 * 60 * 1000)
 
+    this.connectedSince = new Date().toISOString()
+
     this.bot.onMessage(async (msg: any) => {
       // Successful message = connection healthy
       this.consecutiveErrors = 0
+      this.lastReceiveAt = new Date().toISOString()
 
       // Allowlist check
       if (ALLOWED_USERS.length > 0 && !ALLOWED_USERS.includes(msg.userId)) {
@@ -245,6 +277,7 @@ export class WeixinConnection {
       }
       if (i < chunks.length - 1) await new Promise(r => setTimeout(r, 500))
     }
+    this.lastSendAt = new Date().toISOString()
   }
 
   /** Upload a local image and send it as an image message. */

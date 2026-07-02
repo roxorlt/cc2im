@@ -194,11 +194,22 @@ export function createApiHandler(deps: ApiHandlerDeps) {
           type: ch.type,
           label: ch.label,
           status: ch.getStatus(),
+          health: typeof ch.getHealth === 'function' ? ch.getHealth() : null,
         }))
         res.end(JSON.stringify(channels))
       } else {
         res.end('[]')
       }
+      return
+    }
+
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/health$/) && req.method === 'GET') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      const ch = ctx.getChannel(channelId)
+      if (!ch) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"channel not found"}'); return }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(typeof ch.getHealth === 'function' ? ch.getHealth() : null))
       return
     }
 

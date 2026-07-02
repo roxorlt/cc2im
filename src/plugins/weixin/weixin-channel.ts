@@ -9,6 +9,7 @@
 import type {
   Cc2imChannel,
   ChannelStatus,
+  ChannelHealth,
   IncomingChannelMessage,
 } from '../../shared/channel.js'
 import { WeixinConnection } from './connection.js'
@@ -24,6 +25,7 @@ export class WeixinChannel implements Cc2imChannel {
   private status: ChannelStatus = 'disconnected'
   private messageHandlers: Array<(msg: IncomingChannelMessage) => Promise<void>> = []
   private statusHandlers: Array<(status: ChannelStatus, detail?: string) => void> = []
+  private reconnectCount = 0
 
   constructor(id = 'weixin', label = '微信') {
     this.id = id
@@ -76,6 +78,27 @@ export class WeixinChannel implements Cc2imChannel {
 
   getStatus(): ChannelStatus {
     return this.status
+  }
+
+  // ── health ───────────────────────────────────────────────────────
+
+  /** Called by channel-manager to report auto-reconnect attempt count. */
+  setReconnectCount(n: number): void {
+    this.reconnectCount = n
+  }
+
+  getHealth(): ChannelHealth {
+    const snap = this.weixin.getHealthSnapshot()
+    return {
+      status: this.status,
+      consecutiveErrors: snap.consecutiveErrors,
+      totalErrors: snap.totalErrors,
+      stallCount: snap.stallCount,
+      reconnectCount: this.reconnectCount,
+      lastReceiveAt: snap.lastReceiveAt,
+      lastSendAt: snap.lastSendAt,
+      connectedSince: snap.connectedSince,
+    }
   }
 
   // ── outbound ─────────────────────────────────────────────────────

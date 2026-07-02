@@ -10,6 +10,19 @@ export type ChannelStatus = 'connected' | 'disconnected' | 'expired' | 'connecti
 
 export type ChannelType = 'weixin' | 'telegram' | 'slack' | 'discord' | 'web'
 
+/** Health snapshot for a channel — surfaced on the dashboard so long-poll
+ *  stalls / reconnect churn are visible without tailing hub logs. */
+export interface ChannelHealth {
+  status: ChannelStatus
+  consecutiveErrors: number    // errors since last successful receive (resets to 0 on message)
+  totalErrors: number          // cumulative poll errors since connect
+  stallCount: number           // times the stall threshold was hit
+  reconnectCount: number       // auto-reconnect attempts (filled by channel-manager)
+  lastReceiveAt?: string       // ISO — last inbound message
+  lastSendAt?: string          // ISO — last outbound message
+  connectedSince?: string      // ISO — when the current connection was established
+}
+
 export interface IncomingChannelMessage {
   channelId: string         // instance ID: "weixin-alice"
   channelType: ChannelType  // platform type: "weixin"
@@ -46,4 +59,8 @@ export interface Cc2imChannel {
 
   // --- status events ---
   onStatusChange(handler: (status: ChannelStatus, detail?: string) => void): void
+
+  // --- health (optional) ---
+  /** Return a health snapshot, or undefined if the channel doesn't track health. */
+  getHealth?(): ChannelHealth
 }
