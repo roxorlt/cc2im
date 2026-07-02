@@ -3,8 +3,9 @@
  * Per-agent claudeArgs (in agents.json) override these by flag name.
  */
 export const DEFAULT_CLAUDE_ARGS: readonly string[] = [
+  // CLI no longer accepts wildcard allow rules ("*" is ignored with a startup
+  // warning); permission-mode auto already covers unattended operation.
   '--permission-mode', 'auto',
-  '--allowedTools', '*',
   '--effort', 'max',
 ]
 

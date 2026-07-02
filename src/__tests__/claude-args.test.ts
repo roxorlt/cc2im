@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from '../shared/claude-args.js'
 
 describe('DEFAULT_CLAUDE_ARGS', () => {
-  it('includes permission-mode auto, allowedTools *, effort max', () => {
+  it('includes permission-mode auto and effort max', () => {
     expect(DEFAULT_CLAUDE_ARGS).toEqual([
       '--permission-mode', 'auto',
-      '--allowedTools', '*',
       '--effort', 'max',
     ])
+  })
+
+  it('does not include allowedTools (wildcard rejected by new CLI)', () => {
+    expect(DEFAULT_CLAUDE_ARGS).not.toContain('--allowedTools')
   })
 })
 
@@ -15,7 +18,6 @@ describe('mergeClaudeArgs', () => {
   it('returns defaults unchanged when user args is empty', () => {
     expect(mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, [])).toEqual([
       '--permission-mode', 'auto',
-      '--allowedTools', '*',
       '--effort', 'max',
     ])
   })
@@ -23,7 +25,6 @@ describe('mergeClaudeArgs', () => {
   it('appends user args when no flag overlap', () => {
     expect(mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, ['--foo', 'bar'])).toEqual([
       '--permission-mode', 'auto',
-      '--allowedTools', '*',
       '--effort', 'max',
       '--foo', 'bar',
     ])
@@ -32,7 +33,6 @@ describe('mergeClaudeArgs', () => {
   it('drops default flag+value when user sets the same flag', () => {
     expect(mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, ['--effort', 'high'])).toEqual([
       '--permission-mode', 'auto',
-      '--allowedTools', '*',
       '--effort', 'high',
     ])
   })
@@ -42,7 +42,6 @@ describe('mergeClaudeArgs', () => {
       DEFAULT_CLAUDE_ARGS,
       ['--permission-mode', 'ask', '--effort', 'low'],
     )).toEqual([
-      '--allowedTools', '*',
       '--permission-mode', 'ask',
       '--effort', 'low',
     ])
