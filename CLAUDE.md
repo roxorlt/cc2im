@@ -141,6 +141,7 @@ src/
 - 改完 `keys.env` 后必须重启 hub 才能生效：`launchctl kickstart -k gui/$(id -u)/com.cc2im.hub`
 - 已使用的 key 列表：
   - `DEEPSEEK_API_KEY` — dashboard 底部 Deepseek-Billing 余额查询
+  - `CC2IM_ALLOWED_USERS` — 微信白名单，逗号分隔的 userId 列表；为空则接受所有用户消息
 
 ## 通信协议
 

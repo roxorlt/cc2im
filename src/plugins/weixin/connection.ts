@@ -13,6 +13,7 @@ import { loadCredentials, CRED_PATH, CRED_DIR } from './qr-login.js'
 import { splitIntoChunks, formatChunks } from './chunker.js'
 import { uploadMedia } from './media-upload.js'
 import { SOCKET_DIR } from '../../shared/socket.js'
+import { getSecret } from '../../shared/secrets.js'
 
 export type IncomingMessage = {
   userId: string
@@ -27,9 +28,14 @@ export type OnMessageCallback = (msg: IncomingMessage & {
   voiceText?: string | null
 }) => void
 
-const ALLOWED_USERS = process.env.CC2IM_ALLOWED_USERS
-  ? process.env.CC2IM_ALLOWED_USERS.split(',').map(s => s.trim())
-  : []
+/** 逗号分隔的 userId 列表 → 数组；空值/空串 → []（放行所有人） */
+export function parseAllowedUsers(raw: string | undefined): string[] {
+  if (!raw) return []
+  return raw.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+// process.env 优先，fallback 到 .secrets/keys.env（改后重启 hub 生效）
+const ALLOWED_USERS = parseAllowedUsers(getSecret('CC2IM_ALLOWED_USERS'))
 
 const CONTEXT_CACHE_PATH = join(SOCKET_DIR, 'weixin-context.json')
 
@@ -141,7 +147,9 @@ export class WeixinConnection {
 
     if (ALLOWED_USERS.length === 0) {
       console.log('[hub] ⚠ 白名单为空，将接受所有用户消息')
-      console.log('[hub] 设置 CC2IM_ALLOWED_USERS 环境变量限制用户')
+      console.log('[hub] 在 .secrets/keys.env 或环境变量中设置 CC2IM_ALLOWED_USERS 限制用户')
+    } else {
+      console.log(`[hub] 白名单已启用（${ALLOWED_USERS.length} 个用户）`)
     }
 
     return creds.accountId
