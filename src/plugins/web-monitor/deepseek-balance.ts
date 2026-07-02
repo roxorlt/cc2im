@@ -1,5 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { getSecret, SECRETS_FILE } from '../../shared/secrets.js'
 
 export interface DeepseekBalanceInfo {
   currency: string
@@ -15,39 +14,8 @@ export interface DeepseekBalance {
   error?: string
 }
 
-// Project root is 3 levels up from this file (src/plugins/web-monitor or dist/plugins/web-monitor).
-const PROJECT_ROOT = resolve(import.meta.dirname!, '..', '..', '..')
-const SECRETS_FILE = join(PROJECT_ROOT, '.secrets', 'keys.env')
-
-function parseEnvFile(path: string): Record<string, string> {
-  const out: Record<string, string> = {}
-  if (!existsSync(path)) return out
-  let content: string
-  try {
-    content = readFileSync(path, 'utf8')
-  } catch {
-    return out
-  }
-  for (const raw of content.split(/\r?\n/)) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq === -1) continue
-    const key = line.slice(0, eq).trim()
-    let value = line.slice(eq + 1).trim()
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-      value = value.slice(1, -1)
-    }
-    if (key) out[key] = value
-  }
-  return out
-}
-
 function readApiKey(): string | null {
-  if (process.env.DEEPSEEK_API_KEY?.trim()) return process.env.DEEPSEEK_API_KEY.trim()
-  const fileEnv = parseEnvFile(SECRETS_FILE)
-  if (fileEnv.DEEPSEEK_API_KEY?.trim()) return fileEnv.DEEPSEEK_API_KEY.trim()
-  return null
+  return getSecret('DEEPSEEK_API_KEY') ?? null
 }
 
 export async function getDeepseekBalance(): Promise<DeepseekBalance> {
