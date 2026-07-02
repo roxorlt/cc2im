@@ -110,6 +110,13 @@ export function deleteJob(id: string): boolean {
   return result.changes > 0
 }
 
+/** Repoint every cron job of a renamed agent to its new name. */
+export function renameAgent(oldName: string, newName: string): number {
+  const d = openCronDb()
+  const r = d.prepare('UPDATE cron_jobs SET agent_id = ? WHERE agent_id = ?').run(newName, oldName)
+  return r.changes
+}
+
 export function updateJob(
   id: string,
   updates: Partial<Pick<CronJob, 'enabled' | 'nextRun' | 'name' | 'message' | 'scheduleValue' | 'scheduleType' | 'timezone'>>

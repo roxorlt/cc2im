@@ -33,14 +33,23 @@ describe('POST /api/onboard', () => {
   let tmpDir: string
   let realDir: string
 
-  const calls = { register: [] as any[], writeMcpJson: [] as string[], start: [] as string[] }
+  const calls = { register: [] as any[], writeMcpJson: [] as string[], start: [] as string[], deregister: [] as string[] }
   const mgr = {
     register: vi.fn((name: string, cwd: string, _args?: string[], autoStart?: boolean) => {
       if (name === 'dupe') return { success: false, error: 'already exists' }
       calls.register.push({ name, cwd, autoStart }); return { success: true }
     }),
-    writeMcpJson: vi.fn((name: string) => { calls.writeMcpJson.push(name); return { success: true } }),
-    start: vi.fn((name: string) => { calls.start.push(name); return { success: true } }),
+    writeMcpJson: vi.fn((name: string) => {
+      calls.writeMcpJson.push(name)
+      if (name === 'mcpfail') return { success: false, error: 'disk full' }
+      return { success: true }
+    }),
+    start: vi.fn((name: string) => {
+      calls.start.push(name)
+      if (name === 'startfail') return { success: false, error: 'spawn failed' }
+      return { success: true }
+    }),
+    deregister: vi.fn(async (name: string) => { calls.deregister.push(name); return { success: true } }),
     getConfig: vi.fn(() => ({ defaultAgent: 'brain', agents: {} })),
   }
   const ctx = {
@@ -113,5 +122,31 @@ describe('POST /api/onboard', () => {
   it('accepts Chinese agent names', async () => {
     const res = await post({ name: '报告组', cwd: realDir })
     expect(res.status).toBe(201)
+  })
+
+  it('rejects path-traversal in agent name', async () => {
+    expect((await post({ name: '../evil', cwd: realDir })).status).toBe(400)
+    expect((await post({ name: 'a/b', cwd: realDir })).status).toBe(400)
+  })
+
+  it('rolls back register when writeMcpJson fails', async () => {
+    const res = await post({ name: 'mcpfail', cwd: realDir })
+    expect(res.status).toBe(500)
+    expect(calls.deregister).toContain('mcpfail') // rolled back
+  })
+
+  it('startNow failure returns 200 with started:false + startError', async () => {
+    const res = await post({ name: 'startfail', cwd: realDir, startNow: true })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, registered: true, started: false, startError: 'spawn failed' })
+  })
+
+  it('refuses cross-site requests (CSRF guard)', async () => {
+    const res = await fetch(`${baseUrl}/api/onboard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'cross-site' },
+      body: JSON.stringify({ name: 'x', cwd: realDir }),
+    })
+    expect(res.status).toBe(403)
   })
 })

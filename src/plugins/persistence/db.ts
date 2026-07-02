@@ -91,6 +91,12 @@ export function markDelivered(messageId: string) {
     .run(new Date().toISOString(), messageId)
 }
 
+/** Repoint a renamed agent's persisted messages (incl. its pending queue). */
+export function renameAgent(oldName: string, newName: string): number {
+  const r = openDb().prepare(`UPDATE messages SET agent_id = ? WHERE agent_id = ?`).run(newName, oldName)
+  return r.changes
+}
+
 export function getPending(agentId: string): Array<{
   id: string; userId: string; text: string; msgType: string; mediaPath: string | null; createdAt: string
 }> {

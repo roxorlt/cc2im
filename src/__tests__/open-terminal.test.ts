@@ -118,4 +118,20 @@ describe('POST /api/agents/:name/handoff', () => {
   it('404 for unknown agent', async () => {
     expect((await fetch(`${baseUrl}/api/agents/ghost/handoff`, { method: 'POST' })).status).toBe(404)
   })
+
+  it('returns 500 when opening the terminal fails', async () => {
+    openTerminalFn.mockReturnValueOnce({ ok: false as any, error: 'no display' } as any)
+    const res = await fetch(`${baseUrl}/api/agents/brain/handoff`, { method: 'POST' })
+    expect(res.status).toBe(500)
+    const data = await res.json()
+    expect(data).toMatchObject({ error: 'no display' })
+    expect(data).toHaveProperty('stopped')
+  })
+
+  it('refuses cross-site handoff (CSRF guard)', async () => {
+    const res = await fetch(`${baseUrl}/api/agents/brain/handoff`, {
+      method: 'POST', headers: { 'Sec-Fetch-Site': 'cross-site' },
+    })
+    expect(res.status).toBe(403)
+  })
 })

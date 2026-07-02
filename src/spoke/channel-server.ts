@@ -378,9 +378,10 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
       case 'agent_rename': {
         const { name: agentName, new_name } = args as { name: string; new_name: string }
         const result = await sendManagement(socketClient, agentId, 'rename', { name: agentName, newName: new_name })
+        const warning = result.data?.warning ? `\n⚠ ${result.data.warning}` : ''
         return {
           content: [{ type: 'text' as const, text: result.success
-            ? `Agent "${agentName}" 已改名为 "${new_name}"（已重启，微信请 @${new_name}）`
+            ? `Agent "${agentName}" 已改名为 "${new_name}"（已重启，微信请 @${new_name}）${warning}`
             : `改名失败: ${result.error}` }],
           isError: !result.success,
         }

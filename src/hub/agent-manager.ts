@@ -9,6 +9,7 @@ import { spawn, execSync, ChildProcess } from 'node:child_process'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { ensureMcpJson } from '../shared/mcp-config.js'
 import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from '../shared/claude-args.js'
+import { isValidAgentName } from '../shared/agent-name.js'
 import type { AgentConfig, AgentsConfig } from '../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
@@ -128,8 +129,9 @@ export class AgentManager {
    *  whitespace-free (the @mention router splits on whitespace). */
   validateRename(oldName: string, newName: string): string | null {
     if (!this.config.agents[oldName]) return `Agent "${oldName}" not found`
-    if (!newName || /\s/.test(newName)) return '新名非法（空或含空格）'
     if (newName === oldName) return null // no-op is allowed
+    // Same strictness as onboarding: name becomes a path segment + argv token.
+    if (!isValidAgentName(newName)) return '新名非法：仅允许字母/数字/中文/._- 且 1-64 字符，不能含空格或路径分隔符'
     if (this.config.agents[newName]) return `Agent "${newName}" 已存在`
     return null
   }
@@ -137,14 +139,25 @@ export class AgentManager {
   /** Rename an agent: migrate its config key (preserving cwd/autoStart/args),
    *  fix defaultAgent + channelDefaults references, and restart it under the new
    *  name if it was running. The new spoke reconnects with the new --agent-id. */
-  async rename(oldName: string, newName: string): Promise<{ success: boolean; error?: string }> {
+  async rename(oldName: string, newName: string): Promise<{ success: boolean; error?: string; warning?: string }> {
     const err = this.validateRename(oldName, newName)
     if (err) return { success: false, error: err }
     if (newName === oldName) return { success: true }
 
     const agent = this.config.agents[oldName]
     const wasManaged = this.isManaged(oldName)
-    if (wasManaged) await this.stop(oldName)
+    // An externally-started spoke (connected but not managed by this hub) keeps
+    // its old --agent-id until its terminal session restarts — we can't cleanly
+    // migrate it, so we rename the config and warn.
+    const externalOnline = !wasManaged && this.getConnectedAgents().includes(oldName)
+
+    if (wasManaged) {
+      await this.stop(oldName)
+      // Same stop→start race guard restart() uses: wait for the old spoke's
+      // socket to close (proxy for the detached claude having exited) so the
+      // new claude --continue doesn't overlap the old one on the same cwd.
+      await this.waitForDisconnect(oldName, 6000)
+    }
 
     this.config.agents[newName] = { ...agent, name: newName }
     delete this.config.agents[oldName]
@@ -158,6 +171,9 @@ export class AgentManager {
     console.log(`[agent-manager] Renamed "${oldName}" → "${newName}"${wasManaged ? ' (restarting)' : ''}`)
 
     if (wasManaged) this.start(newName)
+    if (externalOnline) {
+      return { success: true, warning: `"${oldName}" 是外部启动的会话，配置已改名为 "${newName}"，但需手动重启该终端会话才能以新名重连。` }
+    }
     return { success: true }
   }
 

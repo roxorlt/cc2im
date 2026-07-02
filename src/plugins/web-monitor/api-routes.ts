@@ -17,6 +17,15 @@ import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
 import { WebChannel, WEB_CHANNEL_ID } from '../web-channel/index.js'
 import { openInTerminal, handoffCommand, type OpenTerminalResult } from '../../shared/open-terminal.js'
+import { isValidAgentName } from '../../shared/agent-name.js'
+
+/** CSRF guard for state-changing / process-spawning endpoints. Modern browsers
+ *  send Sec-Fetch-Site; reject cross-site. Absent header (curl/tests) is allowed —
+ *  the dashboard is 127.0.0.1-only, so this just blocks drive-by CSRF from other sites. */
+function isCrossSite(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site']
+  return typeof site === 'string' && site !== 'same-origin' && site !== 'same-site' && site !== 'none'
+}
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
 import { Cron } from 'croner'
@@ -192,6 +201,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
 
     if (url.pathname === '/api/onboard' && req.method === 'POST') {
       if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      if (isCrossSite(req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end('{"error":"cross-site request refused"}'); return }
       let body = ''
       req.on('data', (chunk: Buffer) => { body += chunk })
       req.on('end', async () => {
@@ -201,8 +211,8 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         }
         try {
           const { name, cwd, autoStart = true, startNow = false } = JSON.parse(body)
-          // agentId 会进 expect 脚本，收紧字符集防注入
-          if (typeof name !== 'string' || !/^[A-Za-z0-9一-龥][A-Za-z0-9一-龥._-]{0,63}$/.test(name)) {
+          // agentId 会进 expect 脚本 + 文件系统路径，收紧字符集防注入/路径穿越（与 rename 共用校验）
+          if (!isValidAgentName(name)) {
             return fail(400, 'name 非法：仅允许字母/数字/中文/._- 且 1-64 字符')
           }
           if (typeof cwd !== 'string' || !cwd.trim() || /[\n\r\0]/.test(cwd)) {
@@ -215,11 +225,16 @@ export function createApiHandler(deps: ApiHandlerDeps) {
           const reg = mgr.register(name, cwd, undefined, !!autoStart)
           if (!reg.success) return fail(409, reg.error || 'register 失败')
 
+          // Write .mcp.json before announcing the agent — if it fails, roll back
+          // the registration so agents.json stays clean and the user can retry.
+          const wrote = mgr.writeMcpJson(name)
+          if (!wrote.success) {
+            await mgr.deregister(name)
+            return fail(500, wrote.error || 'writeMcpJson 失败')
+          }
+
           ctx!.getRouter().updateConfig(mgr.getConfig())
           ctx!.broadcastMonitor({ kind: 'config_changed' as any, agentId: name, timestamp: new Date().toISOString() })
-
-          const wrote = mgr.writeMcpJson(name)
-          if (!wrote.success) return fail(500, wrote.error || 'writeMcpJson 失败')
 
           let started = false
           if (startNow) {
@@ -244,6 +259,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
 
     if (url.pathname.match(/^\/api\/agents\/[^/]+\/handoff$/) && req.method === 'POST') {
       if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      if (isCrossSite(req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end('{"error":"cross-site request refused"}'); return }
       const name = decodeURIComponent(url.pathname.split('/')[3])
       ;(async () => {
         try {

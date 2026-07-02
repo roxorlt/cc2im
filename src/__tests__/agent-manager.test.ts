@@ -795,3 +795,48 @@ describe('AgentManager.rename()', () => {
     expect(manager.getConfig().agents['brain']).toBeDefined()
   })
 })
+
+describe('AgentManager.rename() — process + validation edges (B2.1 review fixes)', () => {
+  const cfg = () => ({
+    defaultAgent: 'brain',
+    agents: {
+      brain: { name: 'brain', cwd: '/p/brain', createdAt: '2026-01-01', autoStart: true },
+      geo: { name: 'geo', cwd: '/p/geo', createdAt: '2026-01-01', autoStart: false },
+    },
+  })
+
+  it('managed agent: stops old, waits for disconnect, starts new', async () => {
+    const { manager } = makeManager([], cfg())
+    ;(manager as any).processes.set('brain', { pid: 111 }) // mark managed
+    const stopSpy = vi.spyOn(manager as any, 'stop').mockResolvedValue({ success: true })
+    const waitSpy = vi.spyOn(manager as any, 'waitForDisconnect').mockResolvedValue(undefined)
+    const startSpy = vi.spyOn(manager as any, 'start').mockReturnValue({ success: true })
+
+    const r = await manager.rename('brain', 'brainy')
+    expect(r.success).toBe(true)
+    expect(stopSpy).toHaveBeenCalledWith('brain')
+    expect(waitSpy).toHaveBeenCalledWith('brain', expect.any(Number))
+    expect(startSpy).toHaveBeenCalledWith('brainy')
+    expect(manager.getConfig().agents['brainy']).toBeDefined()
+    expect(manager.getConfig().agents['brain']).toBeUndefined()
+  })
+
+  it('external (connected but unmanaged) agent: warns instead of restarting', async () => {
+    const { manager } = makeManager(['brain'], cfg()) // connected, but no process → unmanaged
+    const startSpy = vi.spyOn(manager as any, 'start')
+    const r = await manager.rename('brain', 'brainy')
+    expect(r.success).toBe(true)
+    expect(r.warning).toMatch(/外部启动/)
+    expect(startSpy).not.toHaveBeenCalled()
+    expect(manager.getConfig().agents['brainy']).toBeDefined()
+  })
+
+  it('rejects path-traversal / separator names (aligned with onboard)', () => {
+    const { manager } = makeManager([], cfg())
+    expect(manager.validateRename('brain', '../evil')).toContain('非法')
+    expect(manager.validateRename('brain', 'a/b')).toContain('非法')
+    expect(manager.validateRename('brain', '.hidden')).toContain('非法')
+    expect(manager.validateRename('brain', 'ok_name-1')).toBeNull()
+    expect(manager.validateRename('brain', '报告组')).toBeNull()
+  })
+})
