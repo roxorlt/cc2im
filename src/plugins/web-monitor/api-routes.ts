@@ -15,6 +15,7 @@ import { readStats } from './stats-reader.js'
 import type { HubEventData } from '../../shared/types.js'
 import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
+import { WebChannel, WEB_CHANNEL_ID } from '../web-channel/index.js'
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
 import { Cron } from 'croner'
@@ -146,6 +147,40 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         ? messageHistory.filter(m => m.event.agentId === agentId)
         : messageHistory
       res.end(JSON.stringify(filtered))
+      return
+    }
+
+    // --- Dashboard chat: inject a message into the web channel ---
+
+    if (url.pathname === '/api/chat' && req.method === 'POST') {
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', async () => {
+        try {
+          const { text, agentId } = JSON.parse(body)
+          if (typeof text !== 'string' || !text.trim()) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end('{"error":"text required"}')
+            return
+          }
+          const web = ctx!.getChannel(WEB_CHANNEL_ID)
+          if (!web || !(web instanceof WebChannel)) {
+            res.writeHead(503, { 'Content-Type': 'application/json' })
+            res.end('{"error":"web channel unavailable"}')
+            return
+          }
+          // @agent 前缀交给 router 解析；带 agentId 时替用户拼好
+          const trimmed = text.trim()
+          const composed = agentId && !trimmed.startsWith('@') ? `@${agentId} ${trimmed}` : trimmed
+          await web.injectIncoming(composed)
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end('{"ok":true}')
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })
       return
     }
 
@@ -321,6 +356,11 @@ export function createApiHandler(deps: ApiHandlerDeps) {
     if (url.pathname.startsWith('/api/channels/') && !url.pathname.includes('/probe') && !url.pathname.includes('/disconnect') && !url.pathname.includes('/login') && req.method === 'DELETE') {
       if (!ctx) { res.writeHead(503); res.end('{"error":"no hub context"}'); return }
       const channelId = decodeURIComponent(url.pathname.slice('/api/channels/'.length))
+      if (channelId === WEB_CHANNEL_ID) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end('{"error":"built-in web channel cannot be removed"}')
+        return
+      }
       if (!ctx.getChannel(channelId)) {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end('{"error":"channel not found"}')

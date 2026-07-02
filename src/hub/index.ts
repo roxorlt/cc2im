@@ -12,11 +12,13 @@ import { PluginManager } from './plugin-manager.js'
 import { createPersistencePlugin } from '../plugins/persistence/index.js'
 import { createCronSchedulerPlugin } from '../plugins/cron-scheduler/index.js'
 import { WeixinChannel } from '../plugins/weixin/weixin-channel.js'
+import { WebChannel } from '../plugins/web-channel/index.js'
 import { loadChannelConfigs } from '../shared/channel-config.js'
 import { createChannelManagerPlugin } from '../plugins/channel-manager/index.js'
 import { createWebMonitorPlugin } from '../plugins/web-monitor/index.js'
 import { SOCKET_DIR } from '../shared/socket.js'
 import type { AgentsConfig, SpokeToHub } from '../shared/types.js'
+import type { Cc2imChannel } from '../shared/channel.js'
 
 // --- Config ---
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
@@ -87,7 +89,7 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
   const pluginManager = new PluginManager()
 
   const channelConfigs = loadChannelConfigs()
-  const channels = channelConfigs.map(cfg => {
+  const channels: Cc2imChannel[] = channelConfigs.map(cfg => {
     switch (cfg.type) {
       case 'weixin':
         return new WeixinChannel(cfg.id, cfg.accountName)
@@ -101,6 +103,9 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
     console.warn('[hub] No channels configured, creating default weixin channel')
     channels.push(new WeixinChannel())
   }
+
+  // Dashboard chat — built-in web channel, always present, not persisted in channels.json
+  channels.push(new WebChannel())
   pluginManager.register(createPersistencePlugin())
   pluginManager.register(createCronSchedulerPlugin())
   pluginManager.register(createChannelManagerPlugin(channels))
