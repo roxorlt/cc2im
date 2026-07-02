@@ -24,10 +24,22 @@ export interface HubEventData {
   channelType?: string
 }
 
+export interface ChannelHealthInfo {
+  status: string
+  consecutiveErrors: number
+  totalErrors: number
+  stallCount: number
+  reconnectCount: number
+  lastReceiveAt?: string
+  lastSendAt?: string
+  connectedSince?: string
+}
+
 export interface ChannelInfo {
   id: string
   status: 'connected' | 'disconnected' | 'expired' | 'connecting'
   label: string
+  health?: ChannelHealthInfo | null
 }
 
 export interface CronJobInfo {

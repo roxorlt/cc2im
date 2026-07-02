@@ -13,6 +13,7 @@ interface SidebarProps {
   onAddChannel: () => void
   cronJobs: CronJobInfo[]
   onAddTask: () => void
+  onOnboard: () => void
 }
 
 const SIDEBAR_COLLAPSED_KEY = 'cc2im.sidebar.collapsed'
@@ -137,6 +138,17 @@ export function Sidebar(props: SidebarProps) {
               />
             )
           })}
+          <div
+            onClick={props.onOnboard}
+            style={{
+              padding: '6px 10px', borderRadius: 6, cursor: 'pointer',
+              fontSize: 11, color: 'var(--text-dim)', transition: 'color 0.12s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-dim)')}
+          >
+            + 接入目录
+          </div>
         </div>
       )}
 

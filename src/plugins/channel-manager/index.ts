@@ -266,6 +266,7 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
           } else if (status === 'connected') {
             // Reset backoff on successful connect
             reconnectAttempts.delete(ch.id)
+            reportReconnectCount(ch)
             const timer = reconnectTimers.get(ch.id)
             if (timer) { clearTimeout(timer); reconnectTimers.delete(ch.id) }
           }
@@ -278,11 +279,19 @@ export function createChannelManagerPlugin(channels: Cc2imChannel[]): Cc2imPlugi
 
       // --- Auto-reconnect with exponential backoff ---
 
+      // Push the current reconnect-attempt count into the channel so its
+      // getHealth() reflects reconnect churn (weixin channel only — duck-typed).
+      function reportReconnectCount(ch: Cc2imChannel) {
+        const setter = (ch as { setReconnectCount?: (n: number) => void }).setReconnectCount
+        if (typeof setter === 'function') setter.call(ch, reconnectAttempts.get(ch.id) ?? 0)
+      }
+
       function scheduleReconnect(ch: Cc2imChannel, overrideDelaySec?: number) {
         if (reconnectTimers.has(ch.id)) return // already scheduled
 
         const attempt = (reconnectAttempts.get(ch.id) ?? 0) + 1
         reconnectAttempts.set(ch.id, attempt)
+        reportReconnectCount(ch)
         const delaySec = overrideDelaySec ?? Math.min(10 * Math.pow(2, attempt - 1), 300) // 10s, 20s, 40s, ..., max 5min
         console.log(`[channel-manager] Scheduling reconnect for "${ch.id}" in ${delaySec}s (attempt ${attempt})`)
 

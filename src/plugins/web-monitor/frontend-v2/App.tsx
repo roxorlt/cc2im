@@ -9,6 +9,7 @@ import { ChatInput } from './components/ChatInput'
 import { LogViewer } from './components/LogViewer'
 import { ChannelsPage } from './components/ChannelsPage'
 import { ScheduledTasksPage } from './components/ScheduledTasksPage'
+import { OnboardWizard } from './components/OnboardWizard'
 
 type Page = 'chat' | 'channels' | 'tasks'
 
@@ -39,6 +40,44 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
       <span style={{ color, letterSpacing: '0.03em' }}>{bar}</span>{' '}
       <span style={{ color, fontWeight: 700 }}>{pct}%</span>{' '}
       <span style={{ color: 'var(--text-dim)' }}>{resetStr}</span>
+    </span>
+  )
+}
+
+function HandoffButton({ agentId }: { agentId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const handoff = async () => {
+    if (busy) return
+    if (!window.confirm(`在本机终端接管「${agentId}」？\n会停掉当前托管会话，并打开一个终端窗口 claude --continue 续接。`)) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/handoff`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      setMsg(res.ok ? `已在 ${data.app || '终端'} 打开` : `失败：${data.error || res.status}`)
+    } catch (err: any) {
+      setMsg(`失败：${err?.message || err}`)
+    } finally {
+      setBusy(false)
+      setTimeout(() => setMsg(null), 4000)
+    }
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {msg && <span style={{ color: msg.startsWith('失败') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
+      <button
+        onClick={handoff}
+        disabled={busy}
+        title="停掉托管会话并在本机终端接管"
+        style={{
+          padding: '4px 10px', borderRadius: 4, cursor: busy ? 'wait' : 'pointer',
+          border: '1px solid var(--border)', background: 'none',
+          color: 'var(--text-dim)', fontSize: 10, fontFamily: 'var(--font-mono)',
+        }}
+      >{busy ? '接管中…' : '⇥ 终端接管'}</button>
     </span>
   )
 }
@@ -100,6 +139,7 @@ export function App() {
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showOnboard, setShowOnboard] = useState(false)
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const handleTriggerLogin = async (channelId: string) => {
@@ -154,6 +194,7 @@ export function App() {
           onAddChannel={() => { setPage('channels'); setShowAddChannel(true) }}
           cronJobs={cronJobs}
           onAddTask={() => { setPage('tasks'); setShowAddTask(true) }}
+          onOnboard={() => setShowOnboard(true)}
         />
 
         {page === 'chat' ? (
@@ -201,10 +242,11 @@ export function App() {
                   ))}
                 </select>
                 <div style={{
-                  marginLeft: 'auto', padding: '10px 16px',
+                  marginLeft: 'auto', padding: '6px 16px',
                   fontSize: 10, color: 'var(--text-muted)',
-                  display: 'flex', alignItems: 'center', gap: 6,
+                  display: 'flex', alignItems: 'center', gap: 10,
                 }}>
+                  <HandoffButton agentId={activeAgent} />
                   <span style={{ color: 'var(--text-dim)' }}>viewing</span>
                   <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeAgent}</span>
                 </div>
@@ -254,6 +296,13 @@ export function App() {
           />
         )}
       </div>
+
+      {showOnboard && (
+        <OnboardWizard
+          onClose={() => setShowOnboard(false)}
+          onDone={() => { setPage('chat'); refreshChannels() }}
+        />
+      )}
 
       {/* Footer: version + usage + ws status */}
       <div style={{

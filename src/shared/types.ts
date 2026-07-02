@@ -72,9 +72,10 @@ export interface SpokeToHubManagement {
   type: 'management'
   agentId: string
   requestId: string
-  action: 'register' | 'deregister' | 'start' | 'stop' | 'restart' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update'
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'restart' | 'rename' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update'
   params?: {
     name?: string
+    newName?: string
     cwd?: string
     claudeArgs?: string[]
     // cron fields

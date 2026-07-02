@@ -6,8 +6,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { readFileSync, existsSync, statSync } from 'node:fs'
+import { join, resolve, sep, isAbsolute } from 'node:path'
 import { getTokenStats } from './token-stats.js'
 import { getUsageStats } from './usage-stats.js'
 import { getDeepseekBalance } from './deepseek-balance.js'
@@ -16,6 +16,16 @@ import type { HubEventData } from '../../shared/types.js'
 import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
 import { WebChannel, WEB_CHANNEL_ID } from '../web-channel/index.js'
+import { openInTerminal, handoffCommand, type OpenTerminalResult } from '../../shared/open-terminal.js'
+import { isValidAgentName } from '../../shared/agent-name.js'
+
+/** CSRF guard for state-changing / process-spawning endpoints. Modern browsers
+ *  send Sec-Fetch-Site; reject cross-site. Absent header (curl/tests) is allowed —
+ *  the dashboard is 127.0.0.1-only, so this just blocks drive-by CSRF from other sites. */
+function isCrossSite(req: IncomingMessage): boolean {
+  const site = req.headers['sec-fetch-site']
+  return typeof site === 'string' && site !== 'same-origin' && site !== 'same-site' && site !== 'none'
+}
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
 import { Cron } from 'croner'
@@ -42,6 +52,8 @@ export interface ApiHandlerDeps {
   activeQrPolls: Map<string, ReturnType<typeof setInterval>>
   broadcastWs: (msg: any) => void
   frontendDir?: string
+  /** Injectable for tests — defaults to the real openInTerminal (opens a GUI window). */
+  openTerminalFn?: (cwd: string, command: string) => OpenTerminalResult
 }
 
 /**
@@ -54,6 +66,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
     agentsJsonPath, mediaDir, messageHistory, monitor,
     wsClients, ctx, activeQrPolls, broadcastWs, frontendDir,
   } = deps
+  const openTerminalFn = deps.openTerminalFn ?? openInTerminal
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || '/', 'http://localhost')
@@ -184,6 +197,100 @@ export function createApiHandler(deps: ApiHandlerDeps) {
       return
     }
 
+    // --- Onboard a local directory as a cc2im agent ---
+
+    if (url.pathname === '/api/onboard' && req.method === 'POST') {
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      if (isCrossSite(req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end('{"error":"cross-site request refused"}'); return }
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', async () => {
+        const fail = (code: number, msg: string) => {
+          res.writeHead(code, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: msg }))
+        }
+        try {
+          const { name, cwd, autoStart = true, startNow = false } = JSON.parse(body)
+          // agentId 会进 expect 脚本 + 文件系统路径，收紧字符集防注入/路径穿越（与 rename 共用校验）
+          if (!isValidAgentName(name)) {
+            return fail(400, 'name 非法：仅允许字母/数字/中文/._- 且 1-64 字符')
+          }
+          if (typeof cwd !== 'string' || !cwd.trim() || /[\n\r\0]/.test(cwd)) {
+            return fail(400, 'cwd 非法（空或含控制字符）')
+          }
+          if (!isAbsolute(cwd)) return fail(400, 'cwd 必须是绝对路径')
+          if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return fail(400, `目录不存在或不是目录：${cwd}`)
+
+          const mgr = ctx!.getAgentManager()
+          const reg = mgr.register(name, cwd, undefined, !!autoStart)
+          if (!reg.success) return fail(409, reg.error || 'register 失败')
+
+          // Write .mcp.json before announcing the agent — if it fails, roll back
+          // the registration so agents.json stays clean and the user can retry.
+          const wrote = mgr.writeMcpJson(name)
+          if (!wrote.success) {
+            await mgr.deregister(name)
+            return fail(500, wrote.error || 'writeMcpJson 失败')
+          }
+
+          ctx!.getRouter().updateConfig(mgr.getConfig())
+          ctx!.broadcastMonitor({ kind: 'config_changed' as any, agentId: name, timestamp: new Date().toISOString() })
+
+          let started = false
+          if (startNow) {
+            const s = mgr.start(name)
+            started = s.success
+            if (!s.success) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, registered: true, started: false, startError: s.error }))
+              return
+            }
+          }
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, registered: true, started, name, cwd, autoStart: !!autoStart }))
+        } catch (err: any) {
+          fail(500, err.message)
+        }
+      })
+      return
+    }
+
+    // --- One-click handoff: stop a managed agent + open its cwd in a terminal ---
+
+    if (url.pathname.match(/^\/api\/agents\/[^/]+\/handoff$/) && req.method === 'POST') {
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      if (isCrossSite(req)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end('{"error":"cross-site request refused"}'); return }
+      const name = decodeURIComponent(url.pathname.split('/')[3])
+      ;(async () => {
+        try {
+          const config = existsSync(agentsJsonPath) ? JSON.parse(readFileSync(agentsJsonPath, 'utf8')) : { agents: {} }
+          const agent = config.agents?.[name]
+          if (!agent) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"agent not found"}'); return }
+
+          const mgr = ctx!.getAgentManager()
+          // Stop it if the hub is managing it, so the terminal's --continue resumes cleanly.
+          let stopped = false
+          if (mgr.isManaged(name)) {
+            const s = await mgr.stop(name)
+            stopped = s.success
+          }
+
+          const result = openTerminalFn(agent.cwd, handoffCommand())
+          if (!result.ok) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: result.error || 'open terminal failed', stopped }))
+            return
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, stopped, app: result.app, cwd: agent.cwd }))
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })()
+      return
+    }
+
     // --- Channel & Nickname API ---
 
     if (url.pathname === '/api/channels' && req.method === 'GET') {
@@ -194,11 +301,22 @@ export function createApiHandler(deps: ApiHandlerDeps) {
           type: ch.type,
           label: ch.label,
           status: ch.getStatus(),
+          health: typeof ch.getHealth === 'function' ? ch.getHealth() : null,
         }))
         res.end(JSON.stringify(channels))
       } else {
         res.end('[]')
       }
+      return
+    }
+
+    if (url.pathname.match(/^\/api\/channels\/[^/]+\/health$/) && req.method === 'GET') {
+      const channelId = decodeURIComponent(url.pathname.split('/')[3])
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      const ch = ctx.getChannel(channelId)
+      if (!ch) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"channel not found"}'); return }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(typeof ch.getHealth === 'function' ? ch.getHealth() : null))
       return
     }
 

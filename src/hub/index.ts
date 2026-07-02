@@ -201,6 +201,30 @@ async function handleManagement(
       result = await agentManager.restart(msg.params!.name!)
       break
     }
+    case 'rename': {
+      const oldName = msg.params!.name!
+      const newName = msg.params!.newName!
+      // Self-rename restarts this very connection under the new agent-id, so the
+      // old socket can't receive the result — validate up front, ack, then execute.
+      if (oldName === agentId) {
+        const err = agentManager.validateRename(oldName, newName)
+        if (err) { result = { success: false, error: err }; break }
+        sendResult({ success: true, data: { renamedTo: newName } })
+        await agentManager.rename(oldName, newName)
+        await migrateAgentReferences(oldName, newName)
+        router.updateConfig(agentManager.getConfig())
+        ctx.broadcastMonitor({ kind: 'config_changed' as any, agentId: newName, timestamp: new Date().toISOString() })
+        return
+      }
+      const renameRes = await agentManager.rename(oldName, newName)
+      if (renameRes.success) {
+        await migrateAgentReferences(oldName, newName)
+        router.updateConfig(agentManager.getConfig())
+        ctx.broadcastMonitor({ kind: 'config_changed' as any, agentId: newName, timestamp: new Date().toISOString() })
+      }
+      result = { success: renameRes.success, error: renameRes.error, data: renameRes.warning ? { warning: renameRes.warning } : undefined }
+      break
+    }
     case 'stop': {
       if (!agentManager.isManaged(targetName!)) {
         result = { success: false, error: `Agent "${targetName}" is not managed by this hub (started externally)` }
@@ -279,6 +303,26 @@ async function handleManagement(
 
   if (!isSelfAction) {
     sendResult(result!)
+  }
+}
+
+/** After an agent is renamed, repoint its rows in the SQLite tables that
+ *  reference agents by name (cron jobs + persisted/pending messages), so cron
+ *  keeps firing and the offline queue replays under the new name. */
+async function migrateAgentReferences(oldName: string, newName: string) {
+  try {
+    const { renameAgent: renameCron } = await import('../plugins/cron-scheduler/db.js')
+    const n = renameCron(oldName, newName)
+    if (n > 0) console.log(`[hub] rename: repointed ${n} cron job(s) ${oldName} → ${newName}`)
+  } catch (err: any) {
+    console.error(`[hub] rename: cron migration failed: ${err?.message ?? err}`)
+  }
+  try {
+    const { renameAgent: renameMsgs } = await import('../plugins/persistence/db.js')
+    const n = renameMsgs(oldName, newName)
+    if (n > 0) console.log(`[hub] rename: repointed ${n} persisted message(s) ${oldName} → ${newName}`)
+  } catch (err: any) {
+    console.error(`[hub] rename: message migration failed: ${err?.message ?? err}`)
   }
 }
 
