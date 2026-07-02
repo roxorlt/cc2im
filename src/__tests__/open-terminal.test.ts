@@ -57,6 +57,10 @@ describe('open-terminal primitives', () => {
     expect(handoffCommand()).toContain('claude --continue')
     expect(handoffCommand()).toContain('server:cc2im')
   })
+
+  it('handoffCommand marks the session as a managed agent (spoke identity guard)', () => {
+    expect(handoffCommand()).toMatch(/^CC2IM_AGENT=1 claude /)
+  })
 })
 
 // --- handoff API ---

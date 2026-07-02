@@ -321,6 +321,9 @@ export class AgentManager {
       cwd: agent.cwd,
       stdio: ['pipe', 'ignore', 'ignore'],
       detached: true,  // new process group — allows killing entire tree with -pid
+      // Inherited by claude → spoke: marks this CC as a cc2im-managed agent so the
+      // spoke registers. Sessions without it (inherited .mcp.json) stay observers.
+      env: { ...process.env, CC2IM_AGENT: '1' },
     })
 
     // Fallback: if spoke doesn't connect within CONNECT_TIMEOUT_MS, assume init got stuck

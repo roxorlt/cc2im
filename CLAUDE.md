@@ -196,6 +196,7 @@ npm run test:watch     # watch 模式
 3. **caffeinate**：macOS 上用 `caffeinate -i` 防止系统休眠杀进程
 4. **退避重启**：5min 内崩溃 5 次放弃重启，延迟递增 5s/10s/15s/20s/25s
 5. **Channel 抽象**：`Cc2imChannel` 接口支持多平台扩展（当前仅 weixin）
+6. **Spoke 身份闸门（`CC2IM_AGENT=1`）**：agent cwd 下的 `.mcp.json` 会被该目录**之下所有** Claude 会话继承（如 `~/brain/.mcp.json` 影响 `~/brain/**` 里随手打开的任何会话）。spoke 启动时检查 `CC2IM_AGENT=1` 环境变量（见 `shared/agent-env.ts`），没有就进入观察者模式——MCP server 照常起、宿主会话不受影响，但**不向 hub 注册身份**，防止普通会话劫持 agent 收消息。三个合法启动路径（agent-manager spawn / CLI 前台 / 终端接力 handoffCommand）都会注入该变量；新增启动路径时必须同样注入
 
 ## 注意事项
 

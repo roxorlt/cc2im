@@ -14,6 +14,7 @@
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { SOCKET_DIR } from '../shared/socket.js'
+import { AGENT_ENV_VAR, isManagedAgentEnv } from '../shared/agent-env.js'
 import { SpokeSocketClient } from './socket-client.js'
 import { createChannelServer, setupTools, connectTransport, handleManagementResult } from './channel-server.js'
 import { PermissionRelay } from './permission.js'
@@ -109,6 +110,17 @@ const ppidCheck = setInterval(() => {
 async function main() {
   // Connect MCP stdio first (CC is waiting for it)
   await connectTransport(server)
+
+  // Identity guard: only CC processes launched BY cc2im (agent-manager, CLI
+  // foreground, terminal handoff) carry CC2IM_AGENT=1. Any other session that
+  // merely inherited .mcp.json (e.g. a shell session somewhere under ~/brain)
+  // must NOT register, or it would hijack the agent identity and swallow
+  // messages. Observer mode: MCP server stays up so the host CC works normally;
+  // tools that need the hub fail gracefully with "Hub not connected".
+  if (!isManagedAgentEnv()) {
+    console.log(`[spoke:${agentId}] ${AGENT_ENV_VAR} not set — observer mode, NOT registering to hub (host CC was not launched by cc2im)`)
+    return
+  }
 
   // Then connect to hub (exit if hub is unreachable for too long)
   socketClient.onReconnectGiveUp(() => gracefulExit('Hub unreachable, giving up reconnect'))
