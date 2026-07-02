@@ -5,6 +5,7 @@ import { useUsage } from './hooks/useUsage'
 import { TopBar } from './components/TopBar'
 import { Sidebar } from './components/Sidebar'
 import { MessageFlow } from './components/MessageFlow'
+import { ChatInput } from './components/ChatInput'
 import { LogViewer } from './components/LogViewer'
 import { ChannelsPage } from './components/ChannelsPage'
 import { ScheduledTasksPage } from './components/ScheduledTasksPage'
@@ -210,14 +211,17 @@ export function App() {
               </div>
 
               {tab === 'messages'
-                ? <MessageFlow
-                    messages={messages}
-                    agentId={activeAgent}
-                    channelFilter={channelFilter}
-                    activeChannelIds={new Set(channels.map(c => c.id))}
-                    nicknames={nicknames}
-                    onSetNickname={handleSetNickname}
-                  />
+                ? <>
+                    <MessageFlow
+                      messages={messages}
+                      agentId={activeAgent}
+                      channelFilter={channelFilter}
+                      activeChannelIds={new Set(channels.map(c => c.id))}
+                      nicknames={nicknames}
+                      onSetNickname={handleSetNickname}
+                    />
+                    <ChatInput agentId={activeAgent} />
+                  </>
                 : <LogViewer logs={logs} source={activeAgent} />
               }
             </div>

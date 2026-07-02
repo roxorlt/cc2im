@@ -8,7 +8,7 @@
 
 export type ChannelStatus = 'connected' | 'disconnected' | 'expired' | 'connecting'
 
-export type ChannelType = 'weixin' | 'telegram' | 'slack' | 'discord'
+export type ChannelType = 'weixin' | 'telegram' | 'slack' | 'discord' | 'web'
 
 export interface IncomingChannelMessage {
   channelId: string         // instance ID: "weixin-alice"
