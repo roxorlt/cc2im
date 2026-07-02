@@ -44,6 +44,44 @@ function UsageBar({ label, utilization, resetsAt }: { label: string; utilization
   )
 }
 
+function HandoffButton({ agentId }: { agentId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const handoff = async () => {
+    if (busy) return
+    if (!window.confirm(`在本机终端接管「${agentId}」？\n会停掉当前托管会话，并打开一个终端窗口 claude --continue 续接。`)) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const res = await fetch(`/api/agents/${encodeURIComponent(agentId)}/handoff`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      setMsg(res.ok ? `已在 ${data.app || '终端'} 打开` : `失败：${data.error || res.status}`)
+    } catch (err: any) {
+      setMsg(`失败：${err?.message || err}`)
+    } finally {
+      setBusy(false)
+      setTimeout(() => setMsg(null), 4000)
+    }
+  }
+
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {msg && <span style={{ color: msg.startsWith('失败') ? 'var(--red)' : 'var(--green)' }}>{msg}</span>}
+      <button
+        onClick={handoff}
+        disabled={busy}
+        title="停掉托管会话并在本机终端接管"
+        style={{
+          padding: '4px 10px', borderRadius: 4, cursor: busy ? 'wait' : 'pointer',
+          border: '1px solid var(--border)', background: 'none',
+          color: 'var(--text-dim)', fontSize: 10, fontFamily: 'var(--font-mono)',
+        }}
+      >{busy ? '接管中…' : '⇥ 终端接管'}</button>
+    </span>
+  )
+}
+
 export function App() {
   const { agents, hubConnected, wsConnected, messages, logs, channels, setChannels, cronJobs, setCronJobs, nicknames, setNicknames, qrLogin, dismissQrLogin, triggerQrLogin } = useWebSocket()
   const tokenStats = useTokens()
@@ -204,10 +242,11 @@ export function App() {
                   ))}
                 </select>
                 <div style={{
-                  marginLeft: 'auto', padding: '10px 16px',
+                  marginLeft: 'auto', padding: '6px 16px',
                   fontSize: 10, color: 'var(--text-muted)',
-                  display: 'flex', alignItems: 'center', gap: 6,
+                  display: 'flex', alignItems: 'center', gap: 10,
                 }}>
+                  <HandoffButton agentId={activeAgent} />
                   <span style={{ color: 'var(--text-dim)' }}>viewing</span>
                   <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeAgent}</span>
                 </div>

@@ -16,6 +16,7 @@ import type { HubEventData } from '../../shared/types.js'
 import type { HubContext } from '../../shared/plugin.js'
 import { getNicknames, setNickname } from '../persistence/db.js'
 import { WebChannel, WEB_CHANNEL_ID } from '../web-channel/index.js'
+import { openInTerminal, handoffCommand, type OpenTerminalResult } from '../../shared/open-terminal.js'
 import { listJobs, createJob, deleteJob, updateJob, getRecentRuns } from '../cron-scheduler/db.js'
 import { CronScheduler } from '../cron-scheduler/scheduler.js'
 import { Cron } from 'croner'
@@ -42,6 +43,8 @@ export interface ApiHandlerDeps {
   activeQrPolls: Map<string, ReturnType<typeof setInterval>>
   broadcastWs: (msg: any) => void
   frontendDir?: string
+  /** Injectable for tests — defaults to the real openInTerminal (opens a GUI window). */
+  openTerminalFn?: (cwd: string, command: string) => OpenTerminalResult
 }
 
 /**
@@ -54,6 +57,7 @@ export function createApiHandler(deps: ApiHandlerDeps) {
     agentsJsonPath, mediaDir, messageHistory, monitor,
     wsClients, ctx, activeQrPolls, broadcastWs, frontendDir,
   } = deps
+  const openTerminalFn = deps.openTerminalFn ?? openInTerminal
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || '/', 'http://localhost')
@@ -233,6 +237,41 @@ export function createApiHandler(deps: ApiHandlerDeps) {
           fail(500, err.message)
         }
       })
+      return
+    }
+
+    // --- One-click handoff: stop a managed agent + open its cwd in a terminal ---
+
+    if (url.pathname.match(/^\/api\/agents\/[^/]+\/handoff$/) && req.method === 'POST') {
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      const name = decodeURIComponent(url.pathname.split('/')[3])
+      ;(async () => {
+        try {
+          const config = existsSync(agentsJsonPath) ? JSON.parse(readFileSync(agentsJsonPath, 'utf8')) : { agents: {} }
+          const agent = config.agents?.[name]
+          if (!agent) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"agent not found"}'); return }
+
+          const mgr = ctx!.getAgentManager()
+          // Stop it if the hub is managing it, so the terminal's --continue resumes cleanly.
+          let stopped = false
+          if (mgr.isManaged(name)) {
+            const s = await mgr.stop(name)
+            stopped = s.success
+          }
+
+          const result = openTerminalFn(agent.cwd, handoffCommand())
+          if (!result.ok) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: result.error || 'open terminal failed', stopped }))
+            return
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, stopped, app: result.app, cwd: agent.cwd }))
+        } catch (err: any) {
+          res.writeHead(500, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: err.message }))
+        }
+      })()
       return
     }
 
