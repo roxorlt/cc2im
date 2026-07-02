@@ -6,8 +6,8 @@
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFileSync, existsSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { readFileSync, existsSync, statSync } from 'node:fs'
+import { join, resolve, sep, isAbsolute } from 'node:path'
 import { getTokenStats } from './token-stats.js'
 import { getUsageStats } from './usage-stats.js'
 import { getDeepseekBalance } from './deepseek-balance.js'
@@ -179,6 +179,58 @@ export function createApiHandler(deps: ApiHandlerDeps) {
         } catch (err: any) {
           res.writeHead(500, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ error: err.message }))
+        }
+      })
+      return
+    }
+
+    // --- Onboard a local directory as a cc2im agent ---
+
+    if (url.pathname === '/api/onboard' && req.method === 'POST') {
+      if (!ctx) { res.writeHead(503, { 'Content-Type': 'application/json' }); res.end('{"error":"no hub context"}'); return }
+      let body = ''
+      req.on('data', (chunk: Buffer) => { body += chunk })
+      req.on('end', async () => {
+        const fail = (code: number, msg: string) => {
+          res.writeHead(code, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: msg }))
+        }
+        try {
+          const { name, cwd, autoStart = true, startNow = false } = JSON.parse(body)
+          // agentId 会进 expect 脚本，收紧字符集防注入
+          if (typeof name !== 'string' || !/^[A-Za-z0-9一-龥][A-Za-z0-9一-龥._-]{0,63}$/.test(name)) {
+            return fail(400, 'name 非法：仅允许字母/数字/中文/._- 且 1-64 字符')
+          }
+          if (typeof cwd !== 'string' || !cwd.trim() || /[\n\r\0]/.test(cwd)) {
+            return fail(400, 'cwd 非法（空或含控制字符）')
+          }
+          if (!isAbsolute(cwd)) return fail(400, 'cwd 必须是绝对路径')
+          if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return fail(400, `目录不存在或不是目录：${cwd}`)
+
+          const mgr = ctx!.getAgentManager()
+          const reg = mgr.register(name, cwd, undefined, !!autoStart)
+          if (!reg.success) return fail(409, reg.error || 'register 失败')
+
+          ctx!.getRouter().updateConfig(mgr.getConfig())
+          ctx!.broadcastMonitor({ kind: 'config_changed' as any, agentId: name, timestamp: new Date().toISOString() })
+
+          const wrote = mgr.writeMcpJson(name)
+          if (!wrote.success) return fail(500, wrote.error || 'writeMcpJson 失败')
+
+          let started = false
+          if (startNow) {
+            const s = mgr.start(name)
+            started = s.success
+            if (!s.success) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ ok: true, registered: true, started: false, startError: s.error }))
+              return
+            }
+          }
+          res.writeHead(201, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true, registered: true, started, name, cwd, autoStart: !!autoStart }))
+        } catch (err: any) {
+          fail(500, err.message)
         }
       })
       return

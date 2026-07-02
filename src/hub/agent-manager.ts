@@ -103,7 +103,7 @@ export class AgentManager {
     this.config = this.loadConfig()
   }
 
-  register(name: string, cwd: string, claudeArgs?: string[]): { success: boolean; error?: string } {
+  register(name: string, cwd: string, claudeArgs?: string[], autoStart = true): { success: boolean; error?: string } {
     if (this.config.agents[name]) {
       return { success: false, error: `Agent "${name}" already exists` }
     }
@@ -116,11 +116,34 @@ export class AgentManager {
       cwd,
       claudeArgs,
       createdAt: new Date().toISOString().split('T')[0],
-      autoStart: true,
+      autoStart,
     }
     this.saveConfig()
-    console.log(`[agent-manager] Registered "${name}" → ${cwd}`)
+    console.log(`[agent-manager] Registered "${name}" → ${cwd} (autoStart: ${autoStart})`)
     return { success: true }
+  }
+
+  /** Resolve the spoke script path (works for both tsx/src and compiled/dist). */
+  private resolveSpokeScript(): string {
+    const dir = import.meta.dirname!
+    const spokeTs = join(dir, '..', 'spoke', 'index.ts')
+    const spokeJs = join(dir, '..', 'spoke', 'index.js')
+    return existsSync(spokeTs) ? spokeTs : spokeJs
+  }
+
+  /** Write the cc2im spoke entry into the agent's cwd/.mcp.json. Idempotent.
+   *  Extracted so onboarding can prime .mcp.json without starting the agent;
+   *  start() calls it too, so path-resolution logic lives in one place. */
+  writeMcpJson(name: string): { success: boolean; error?: string } {
+    const agent = this.config.agents[name]
+    if (!agent) return { success: false, error: `Agent "${name}" not found` }
+    if (!existsSync(agent.cwd)) return { success: false, error: `Agent "${name}" cwd does not exist: ${agent.cwd}` }
+    try {
+      ensureMcpJson(agent.cwd, this.resolveSpokeScript(), name)
+      return { success: true }
+    } catch (err: any) {
+      return { success: false, error: `Failed to write .mcp.json for "${name}": ${err?.message ?? err}` }
+    }
   }
 
   async deregister(name: string): Promise<{ success: boolean; error?: string }> {
@@ -170,19 +193,10 @@ export class AgentManager {
       return { success: false, error: `Agent "${name}" cwd does not exist: ${agent.cwd}` }
     }
 
-    // Resolve spoke script path (works for both tsx/src and compiled/dist)
-    const dir = import.meta.dirname!
-    const spokeTs = join(dir, '..', 'spoke', 'index.ts')
-    const spokeJs = join(dir, '..', 'spoke', 'index.js')
-    const spokeScript = existsSync(spokeTs) ? spokeTs : spokeJs
-
     // Write .mcp.json in agent's cwd. Isolate any fs error so a single bad
     // agent can't bring down the hub (and with it the web dashboard).
-    try {
-      ensureMcpJson(agent.cwd, spokeScript, name)
-    } catch (err: any) {
-      return { success: false, error: `Failed to write .mcp.json for "${name}": ${err?.message ?? err}` }
-    }
+    const mcpResult = this.writeMcpJson(name)
+    if (!mcpResult.success) return mcpResult
 
     // Ensure agent log directory
     const agentDir = join(SOCKET_DIR, 'agents', name)

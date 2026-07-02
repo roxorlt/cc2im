@@ -9,6 +9,7 @@ import { ChatInput } from './components/ChatInput'
 import { LogViewer } from './components/LogViewer'
 import { ChannelsPage } from './components/ChannelsPage'
 import { ScheduledTasksPage } from './components/ScheduledTasksPage'
+import { OnboardWizard } from './components/OnboardWizard'
 
 type Page = 'chat' | 'channels' | 'tasks'
 
@@ -100,6 +101,7 @@ export function App() {
   const [tab, setTab] = useState<'messages' | 'logs'>('messages')
   const [showAddChannel, setShowAddChannel] = useState(false)
   const [showAddTask, setShowAddTask] = useState(false)
+  const [showOnboard, setShowOnboard] = useState(false)
   const [channelFilter, setChannelFilter] = useState<string | null>(null)
 
   const handleTriggerLogin = async (channelId: string) => {
@@ -154,6 +156,7 @@ export function App() {
           onAddChannel={() => { setPage('channels'); setShowAddChannel(true) }}
           cronJobs={cronJobs}
           onAddTask={() => { setPage('tasks'); setShowAddTask(true) }}
+          onOnboard={() => setShowOnboard(true)}
         />
 
         {page === 'chat' ? (
@@ -254,6 +257,13 @@ export function App() {
           />
         )}
       </div>
+
+      {showOnboard && (
+        <OnboardWizard
+          onClose={() => setShowOnboard(false)}
+          onDone={() => { setPage('chat'); refreshChannels() }}
+        />
+      )}
 
       {/* Footer: version + usage + ws status */}
       <div style={{
