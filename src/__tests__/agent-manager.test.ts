@@ -719,3 +719,79 @@ describe('AgentManager.reloadConfig()', () => {
     expect(manager.getConfig()).toEqual({ defaultAgent: 'brain', agents: {} })
   })
 })
+
+// ---------------------------------------------------------------------------
+// rename() + validateRename()  — B2.1
+// ---------------------------------------------------------------------------
+describe('AgentManager.rename()', () => {
+  const cfg = () => ({
+    defaultAgent: 'brain',
+    agents: {
+      brain: { name: 'brain', cwd: '/p/brain', createdAt: '2026-01-01', autoStart: true, claudeArgs: ['--effort', 'high'] },
+      geo: { name: 'geo', cwd: '/p/geo', createdAt: '2026-01-01', autoStart: false },
+    },
+    channelDefaults: { 'weixin-a': 'brain', 'weixin-b': 'geo' },
+  })
+
+  it('migrates config key, preserving fields and updating name', async () => {
+    const { manager } = makeManager([], cfg())
+    const r = await manager.rename('brain', 'brainy')
+    expect(r.success).toBe(true)
+    const c = manager.getConfig()
+    expect(c.agents['brain']).toBeUndefined()
+    expect(c.agents['brainy']).toMatchObject({
+      name: 'brainy', cwd: '/p/brain', autoStart: true, claudeArgs: ['--effort', 'high'], createdAt: '2026-01-01',
+    })
+    expect(mockWriteFileSync).toHaveBeenCalled()
+  })
+
+  it('updates defaultAgent when the old name was default', async () => {
+    const { manager } = makeManager([], cfg())
+    await manager.rename('brain', 'brainy')
+    expect(manager.getConfig().defaultAgent).toBe('brainy')
+  })
+
+  it('rewrites channelDefaults references to the old name', async () => {
+    const { manager } = makeManager([], cfg())
+    await manager.rename('brain', 'brainy')
+    expect(manager.getConfig().channelDefaults).toEqual({ 'weixin-a': 'brainy', 'weixin-b': 'geo' })
+  })
+
+  it('rejects a name that already exists', async () => {
+    const { manager } = makeManager([], cfg())
+    const r = await manager.rename('brain', 'geo')
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('已存在')
+    expect(manager.getConfig().agents['brain']).toBeDefined() // unchanged
+  })
+
+  it('rejects an illegal (whitespace/empty) new name', async () => {
+    const { manager } = makeManager([], cfg())
+    expect((await manager.rename('brain', 'has space')).success).toBe(false)
+    expect((await manager.rename('brain', '')).success).toBe(false)
+  })
+
+  it('errors when the old name does not exist', async () => {
+    const { manager } = makeManager([], cfg())
+    const r = await manager.rename('ghost', 'x')
+    expect(r.success).toBe(false)
+    expect(r.error).toContain('not found')
+  })
+
+  it('is a no-op when new name equals old name', async () => {
+    const { manager } = makeManager([], cfg())
+    const r = await manager.rename('brain', 'brain')
+    expect(r.success).toBe(true)
+    expect(manager.getConfig().agents['brain']).toBeDefined()
+  })
+
+  it('validateRename returns error messages / null without mutating', () => {
+    const { manager } = makeManager([], cfg())
+    expect(manager.validateRename('brain', 'ok')).toBeNull()
+    expect(manager.validateRename('brain', 'geo')).toContain('已存在')
+    expect(manager.validateRename('ghost', 'x')).toContain('not found')
+    expect(manager.validateRename('brain', 'a b')).toContain('非法')
+    // still intact
+    expect(manager.getConfig().agents['brain']).toBeDefined()
+  })
+})

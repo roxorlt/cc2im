@@ -123,6 +123,44 @@ export class AgentManager {
     return { success: true }
   }
 
+  /** Validate a rename request without mutating anything. Returns an error
+   *  message, or null if the rename is allowed. Names must be non-empty and
+   *  whitespace-free (the @mention router splits on whitespace). */
+  validateRename(oldName: string, newName: string): string | null {
+    if (!this.config.agents[oldName]) return `Agent "${oldName}" not found`
+    if (!newName || /\s/.test(newName)) return '新名非法（空或含空格）'
+    if (newName === oldName) return null // no-op is allowed
+    if (this.config.agents[newName]) return `Agent "${newName}" 已存在`
+    return null
+  }
+
+  /** Rename an agent: migrate its config key (preserving cwd/autoStart/args),
+   *  fix defaultAgent + channelDefaults references, and restart it under the new
+   *  name if it was running. The new spoke reconnects with the new --agent-id. */
+  async rename(oldName: string, newName: string): Promise<{ success: boolean; error?: string }> {
+    const err = this.validateRename(oldName, newName)
+    if (err) return { success: false, error: err }
+    if (newName === oldName) return { success: true }
+
+    const agent = this.config.agents[oldName]
+    const wasManaged = this.isManaged(oldName)
+    if (wasManaged) await this.stop(oldName)
+
+    this.config.agents[newName] = { ...agent, name: newName }
+    delete this.config.agents[oldName]
+    if (this.config.defaultAgent === oldName) this.config.defaultAgent = newName
+    if (this.config.channelDefaults) {
+      for (const [ch, ag] of Object.entries(this.config.channelDefaults)) {
+        if (ag === oldName) this.config.channelDefaults[ch] = newName
+      }
+    }
+    this.saveConfig()
+    console.log(`[agent-manager] Renamed "${oldName}" → "${newName}"${wasManaged ? ' (restarting)' : ''}`)
+
+    if (wasManaged) this.start(newName)
+    return { success: true }
+  }
+
   /** Resolve the spoke script path (works for both tsx/src and compiled/dist). */
   private resolveSpokeScript(): string {
     const dir = import.meta.dirname!

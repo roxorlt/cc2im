@@ -56,7 +56,7 @@ export function handleManagementResult(msg: HubToSpokeManagementResult) {
 function sendManagement(
   socketClient: SpokeSocketClient,
   agentId: string,
-  action: 'register' | 'deregister' | 'start' | 'stop' | 'restart' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update',
+  action: 'register' | 'deregister' | 'start' | 'stop' | 'restart' | 'rename' | 'list' | 'cron_create' | 'cron_list' | 'cron_delete' | 'cron_update',
   params?: Record<string, any>,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   return new Promise((resolve) => {
@@ -182,6 +182,18 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
             name: { type: 'string', description: 'agent 名称' },
           },
           required: ['name'],
+        },
+      },
+      {
+        name: 'agent_rename',
+        description: '给 agent 改名。改名等于重启该 agent（会重写 .mcp.json 并以新 --agent-id 重连），之后微信要 @新名字 才能路由到它。可对自己改名。',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            name: { type: 'string', description: '要改名的 agent（改自己就填自己的名字）' },
+            new_name: { type: 'string', description: '新名称（不能含空格、不能与现有 agent 重名）' },
+          },
+          required: ['name', 'new_name'],
         },
       },
       {
@@ -359,6 +371,17 @@ export function setupTools(server: Server, agentId: string, socketClient: SpokeS
           content: [{ type: 'text' as const, text: result.success
             ? `Agent "${agentName}" 已硬重启`
             : `重启失败: ${result.error}` }],
+          isError: !result.success,
+        }
+      }
+
+      case 'agent_rename': {
+        const { name: agentName, new_name } = args as { name: string; new_name: string }
+        const result = await sendManagement(socketClient, agentId, 'rename', { name: agentName, newName: new_name })
+        return {
+          content: [{ type: 'text' as const, text: result.success
+            ? `Agent "${agentName}" 已改名为 "${new_name}"（已重启，微信请 @${new_name}）`
+            : `改名失败: ${result.error}` }],
           isError: !result.success,
         }
       }

@@ -201,6 +201,27 @@ async function handleManagement(
       result = await agentManager.restart(msg.params!.name!)
       break
     }
+    case 'rename': {
+      const oldName = msg.params!.name!
+      const newName = msg.params!.newName!
+      // Self-rename restarts this very connection under the new agent-id, so the
+      // old socket can't receive the result — validate up front, ack, then execute.
+      if (oldName === agentId) {
+        const err = agentManager.validateRename(oldName, newName)
+        if (err) { result = { success: false, error: err }; break }
+        sendResult({ success: true, data: { renamedTo: newName } })
+        await agentManager.rename(oldName, newName)
+        router.updateConfig(agentManager.getConfig())
+        ctx.broadcastMonitor({ kind: 'config_changed' as any, agentId: newName, timestamp: new Date().toISOString() })
+        return
+      }
+      result = await agentManager.rename(oldName, newName)
+      if (result.success) {
+        router.updateConfig(agentManager.getConfig())
+        ctx.broadcastMonitor({ kind: 'config_changed' as any, agentId: newName, timestamp: new Date().toISOString() })
+      }
+      break
+    }
     case 'stop': {
       if (!agentManager.isManaged(targetName!)) {
         result = { success: false, error: `Agent "${targetName}" is not managed by this hub (started externally)` }
