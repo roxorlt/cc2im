@@ -98,7 +98,7 @@
 2. 持久化 cron 执行日志（触发时间、agent、状态、错误摘要）
 3. 连续 N 次失败时推送微信告警
 
-**来源**：`/Users/roxor/brain/30-projects/xlist-scraper/docs/cc2im-cron-observability.md` (2026-04-01)
+**来源**：`/Users/roxor/brain/30-projects/aifeeds/docs/cc2im-cron-observability.md` (2026-04-01)
 
 ---
 
@@ -122,6 +122,54 @@
 **降级方案**：如果 cron 任务需要 agent 的长对话上下文（如"继续上次的分析"），仍走 deliverToAgent 路径。两种模式可通过 cron job 配置切换。
 
 **来源**：2026-04-01 多 channel 测试 + 用户提出的"临时进程"思路
+
+---
+
+### 7. 远程 Spoke（跨机器注册）
+
+**背景**：spoke ↔ hub 目前走 `~/.cc2im/hub.sock`（Unix socket），只能本机注册。规划中的家用 Mac Studio 作常驻主机后，MacBook 上的本地会话无法挂到 Studio 的 hub 上被微信找到。
+
+**方案**：
+- `shared/socket.ts` 抽象出 transport 层：保留 Unix socket（本机默认），新增 TCP 监听
+- hub 侧：TCP 只绑定 Tailscale 网卡 IP（不监听 0.0.0.0，不暴露公网），端口如 3722
+- spoke 侧：环境变量 `CC2IM_HUB_ADDR=tcp://<studio-tailscale-ip>:3722` 指定远端 hub，未设置则走本机 socket
+- 鉴权：hub 生成 token 存 `~/.cc2im/`，远程 spoke 连接时带上；ndjson 协议加一个 auth 帧
+- 心跳/重连：复用现有 spoke 重连逻辑，跨网场景放宽超时阈值
+- **最麻烦的点是媒体**：`weixin_send_file` 传的是本地路径，跨机时文件在 MacBook、hub 在 Studio——协议需要加文件传输（分块 base64 或 hub 开 HTTP 上传端点）
+
+**改动点**：`shared/socket.ts`（transport 抽象）、`hub/socket-server.ts`（双监听 + auth）、`spoke/socket-client.ts`（地址解析 + auth）、`shared/types.ts`（auth 帧 + 文件传输帧）
+
+**来源**：2026-06-11 会话接力讨论（Mac Studio 部署规划）
+
+---
+
+### 8. 会话接力体验包
+
+**背景**：2026-06-11 讨论确认「终端 ↔ 微信接力」机制可用，但全是手工步骤，需要产品化。
+
+四个子项：
+
+1. **一键接力按钮（Dashboard）**：托管 agent 卡片上加「在终端接管」按钮 → hub 停掉该 agent → 用 `open -na Ghostty`（或 ghostty CLI）拉起新终端窗口自动执行 `cd <cwd> && claude --continue --dangerously-load-development-channels server:cc2im ...`。将来 agent 宿主 tmux 化后，按钮语义改为 attach，免去停止/续接
+2. **agent 改名工具**：CC 的 `/rename` 改的是 harness 会话标签，MCP 侧感知不到，自动对齐不可行；反向做——spoke 加 `agent_rename` management 命令，会话里一句「把 agent 名改成 abc」→ 重新注册 + 更新 agents.json，微信即可 @abc
+3. **双向镜像（hooks）**：当前微信只能看到 agent 主动回复的内容。用 CC hooks（UserPromptSubmit 捕获终端侧输入、Stop 捕获每轮最终回复）经 spoke 转发到微信，实现完整镜像。注意防回环（channel 注入的消息不再镜像）+ 长输出截断。做成 per-agent 三档：full / summary / off
+4. **全局接入（动态 agent-id）**：spoke 支持省略 `--agent-id` 时按 cwd 自动生成（目录名），配合用户级 MCP 配置（user scope，免逐项目批准）实现「任何目录起的会话默认可被微信找到」。需配套：同目录多会话的顶替策略 + 微信白名单（当前白名单为空，任何用户消息都接受，先堵上）
+
+**来源**：2026-06-11 会话接力讨论
+
+---
+
+### 9. Dashboard 功能候选清单（2026-06-11 汇总）
+
+| # | 功能 | 说明 | 关联 |
+|---|------|------|------|
+| 1 | 聊天输入框 | 面板直接与 agent 对话（web 作为一个 channel 接入 router） | 远程访问配 Tailscale |
+| 2 | 一键接力按钮 | 见 #8.1 | |
+| 3 | agent 改名 | 见 #8.2 | |
+| 4 | 镜像开关 | 见 #8.3，per-agent full/summary/off | |
+| 5 | 目录接入向导 | 选目录 → 写 .mcp.json + agents.json 登记 + autoStart 开关 | |
+| 6 | 微信白名单管理 | 当前空白名单 = 接受所有人，安全隐患 | TODO #3 权限体系 |
+| 7 | 通道健康页 | 长轮询错误率 / stall 次数 / 最近收发时间（2026-06-11 排障痛点） | |
+| 8 | 权限审批按钮化 | permission relay 已有，微信端是文字指令，面板做成卡片按钮 | TODO #3 |
 
 ---
 
