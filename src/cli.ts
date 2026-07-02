@@ -180,6 +180,7 @@ function startAgentForeground(name: string) {
   const child = spawn(cmd, args, {
     cwd: agent.cwd,
     stdio: 'inherit',
+    env: { ...process.env, CC2IM_AGENT: '1' },
   })
 
   child.on('exit', (code) => {

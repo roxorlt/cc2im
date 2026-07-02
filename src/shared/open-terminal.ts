@@ -68,5 +68,6 @@ export function openInTerminal(cwd: string, command: string, deps: OpenTerminalD
 
 /** The claude command a handed-off terminal should run (matches agent-manager spawn args, sans expect). */
 export function handoffCommand(): string {
-  return 'claude --continue --dangerously-load-development-channels server:cc2im --permission-mode auto --effort max'
+  // CC2IM_AGENT=1 marks the session as cc2im-managed so its spoke registers to the hub.
+  return 'CC2IM_AGENT=1 claude --continue --dangerously-load-development-channels server:cc2im --permission-mode auto --effort max'
 }
