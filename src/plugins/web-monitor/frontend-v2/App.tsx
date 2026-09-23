@@ -50,7 +50,7 @@ function HandoffButton({ agentId }: { agentId: string }) {
 
   const handoff = async () => {
     if (busy) return
-    if (!window.confirm(`在本机终端接管「${agentId}」？\n会停掉当前托管会话，并打开一个终端窗口 claude --continue 续接。`)) return
+    if (!window.confirm(`在本机终端接管「${agentId}」？\n会停掉当前托管会话，并打开一个终端窗口，接着这个 agent 自己的会话继续。`)) return
     setBusy(true)
     setMsg(null)
     try {
