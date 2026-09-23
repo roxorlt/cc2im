@@ -88,6 +88,8 @@
 ### ~~4. Agent Session 恢复~~ ✅
 
 - 已实现：agent-manager 启动 CC 时传 `--continue`，自动恢复当前 cwd 最近的 session（无历史则降级为新 session）(2026-04-01)
+- 改为「每个 agent 只恢复自己的 session」(2026-09-23)：`--continue` 恢复的是 cwd 里**最近被用过**的 session，用户在同目录用 `claude agents` 开过的后台 session 会在 hub 重启（尤其开机自启）后被 agent 抢进它的隐藏终端，agents 界面随即报「Can't open — this session is running in another terminal」。现在 `agents.json` 为每个 agent 记录 `sessionId`，启动用 `--resume <id>`，新会话用 `--session-id <新 id>` 预先定好编号；spoke 注册时上报 `CLAUDE_CODE_SESSION_ID`，hub 据此校正记录；终端接力同样恢复 agent 自己的 session
+  - 顺带修复：expect 包装原来总以 0 退出，「启动失败 → 下次换新 session」的补救逻辑从未生效；现在 expect 透传 claude 的退出码，并按「本次启动的 spoke 是否注册过」判断启动失败，而不是退出那一刻是否在线
 
 ### 5. Cron 可观测性（Bad Case: xlist-scraper 静默失败）
 
