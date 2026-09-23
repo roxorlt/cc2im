@@ -36,6 +36,7 @@ export class AgentManager {
                                                 // (the previous launch failed or stalled during init)
   private connectedOnce = new Set<string>()     // agents whose current spawn has registered its spoke
                                                 // (the spoke may already be gone when 'exit' fires)
+  private launchedSession = new Map<string, string>()  // session id each current spawn was launched with
   private newSessionId: () => string
 
   constructor(
@@ -268,17 +269,15 @@ export class AgentManager {
 
     // Resume this agent's OWN session by id. Never `--continue`: it resumes the most recent
     // session in cwd, i.e. whatever the user last touched there (e.g. a session opened from
-    // `claude agents`, which then refuses to open it). A new session gets its id up front
-    // so the next restart resumes exactly it.
+    // `claude agents`, which then refuses to open it). A new session gets its id up front;
+    // it is recorded only once its spoke registers (noteSpokeRegistered), so if this launch
+    // fails the next attempt can still go back to the recorded session.
     const fresh = this.freshSessionOnce.delete(name)
     const launch = sessionLaunch(agent.sessionId, fresh, this.newSessionId)
-    if (launch.resumed) {
-      console.log(`[agent-manager] "${name}": resuming own session ${launch.sessionId}`)
-    } else {
-      console.log(`[agent-manager] "${name}": starting new session ${launch.sessionId}${fresh ? ' (previous launch failed or stalled during init)' : ''}`)
-      agent.sessionId = launch.sessionId
-      this.saveConfig()
-    }
+    console.log(launch.resumed
+      ? `[agent-manager] "${name}": resuming own session ${launch.sessionId}`
+      : `[agent-manager] "${name}": starting new session ${launch.sessionId}${fresh ? ' (previous launch failed or stalled during init)' : ''}`)
+    this.launchedSession.set(name, launch.sessionId)
     this.connectedOnce.delete(name)
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
@@ -323,10 +322,12 @@ export class AgentManager {
       '  timeout {}',
       '}',
       '',
-      '# Keep CC running until it exits, then exit with CC\'s own status: expect alone',
-      '# always exits 0, which hid failed launches (e.g. --resume refused → exit 1).',
+      '# Keep CC running until it exits, then exit with CC\'s own status so the hub can tell a',
+      '# failed launch (e.g. --resume refused → 1) from a normal exit. Without this, expect exits',
+      '# 0 after a late exit, and 1 after an exit inside the prompt window above (that block',
+      '# already consumed eof, so a bare `expect eof` errors) — whatever claude returned.',
       'set timeout -1',
-      'expect eof',
+      'catch {expect eof}',
       'set status [wait]',
       'exit [lindex $status 3]',
     ].join('\n')
@@ -353,7 +354,7 @@ export class AgentManager {
     // On next auto-restart, CC starts in a new session.
     const connectTimer = setTimeout(() => {
       if (!this.processes.has(name)) return                         // already exited/stopped
-      if (this.getConnectedAgents().includes(name)) return          // healthy, no action needed
+      if (this.connectedOnce.has(name) || this.getConnectedAgents().includes(name)) return  // came up, no action needed
       console.warn(`[agent-manager] "${name}" did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — killing to restart in a new session`)
       this.freshSessionOnce.add(name)
       this.killProcessTree(child, name)
@@ -365,6 +366,7 @@ export class AgentManager {
       const wasConnected = this.connectedOnce.has(name) || this.getConnectedAgents().includes(name)
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
+      this.launchedSession.delete(name)
       this.savePgids()
       this.onEvent?.('agent_stopped', name, { code })
 
@@ -451,30 +453,48 @@ export class AgentManager {
     })
   }
 
-  /** Called when an agent's spoke registers. Marks the current spawn as connected and adopts
-   *  the session id the spoke reports (CLAUDE_CODE_SESSION_ID), so the record follows the
-   *  session CC actually runs — also for handed-off terminals. */
-  noteSpokeRegistered(name: string, sessionId?: string) {
+  /** Called when an agent's spoke registers: the session is up, so record it. For a hub-managed
+   *  spawn that is the id it was launched with — a nested `claude` started by the agent inherits
+   *  CC2IM_AGENT=1 and can register under the same name, so its report isn't trusted. For a
+   *  terminal handoff or foreground start, it is the id the spoke reports (CLAUDE_CODE_SESSION_ID). */
+  noteSpokeRegistered(name: string, reportedSessionId?: string) {
     const agent = this.config.agents[name]
     if (!agent) return
-    this.connectedOnce.add(name)
+    const managed = this.processes.has(name)
+    if (managed) {
+      this.connectedOnce.add(name)
+      this.freshSessionOnce.delete(name)
+    }
+    const sessionId = managed ? this.launchedSession.get(name) : reportedSessionId
     if (!isSessionId(sessionId) || sessionId === agent.sessionId) return
-    console.log(`[agent-manager] "${name}": session is now ${sessionId} (was ${agent.sessionId ?? 'unrecorded'})`)
-    agent.sessionId = sessionId
-    this.saveConfig()
+    console.log(`[agent-manager] "${name}": recorded session ${sessionId} (was ${agent.sessionId ?? 'none'})`)
+    this.persistSessionId(name, sessionId)
   }
 
-  /** Session flags for a terminal handoff: resume this agent's own session (pre-assigning and
-   *  recording an id if none is known), so the terminal never picks up another session in cwd. */
+  /** Session flags for a terminal handoff: resume this agent's own session, or start a new one
+   *  with a pre-assigned id (recorded once the terminal's spoke registers). Never `--continue`. */
   handoffSessionArgs(name: string): string[] | null {
     const agent = this.config.agents[name]
     if (!agent) return null
-    const launch = sessionLaunch(agent.sessionId, false, this.newSessionId)
-    if (!launch.resumed) {
-      agent.sessionId = launch.sessionId
-      this.saveConfig()
+    return sessionLaunch(agent.sessionId, false, this.newSessionId).args
+  }
+
+  /** Record an agent's session id. Updates only that field on disk (read-modify-write) so an
+   *  out-of-band agents.json edit — e.g. `cc2im agent register` while the hub runs — isn't
+   *  reverted by the in-memory copy. Never throws: it runs on the spoke-registration path. */
+  private persistSessionId(name: string, sessionId: string) {
+    this.config.agents[name].sessionId = sessionId
+    try {
+      const onDisk: AgentsConfig = existsSync(AGENTS_JSON_PATH)
+        ? JSON.parse(readFileSync(AGENTS_JSON_PATH, 'utf8'))
+        : this.config
+      const entry = onDisk.agents?.[name]
+      if (!entry) return
+      entry.sessionId = sessionId
+      writeFileSync(AGENTS_JSON_PATH, JSON.stringify(onDisk, null, 2) + '\n')
+    } catch (err: any) {
+      console.error(`[agent-manager] Failed to record session for "${name}": ${err?.message ?? err}`)
     }
-    return launch.args
   }
 
   list(): Array<{

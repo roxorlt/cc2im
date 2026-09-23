@@ -863,16 +863,16 @@ describe('AgentManager — each agent resumes its own session', () => {
     }
   }
 
-  const cfg = (sessionId?: string) => ({
+  const cfg = (sessionId?: string, extra: Record<string, unknown> = {}) => ({
     defaultAgent: 'brain',
-    agents: { brain: { ...brainAgent, ...(sessionId ? { sessionId } : {}) } },
+    agents: { brain: { ...brainAgent, ...extra, ...(sessionId ? { sessionId } : {}) } },
   })
 
   let child: ReturnType<typeof fakeChild>
 
-  function setup(sessionId?: string) {
+  function setup(sessionId?: string, extra: Record<string, unknown> = {}) {
     const ids = [ID_B, ID_C]
-    const ctx = makeManager([], cfg(sessionId), { newSessionId: () => ids.shift()! })
+    const ctx = makeManager([], cfg(sessionId, extra), { newSessionId: () => ids.shift()! })
     child = fakeChild()
     mockSpawn.mockImplementation(() => child)
     return ctx
@@ -887,7 +887,8 @@ describe('AgentManager — each agent resumes its own session', () => {
   const lastExpectScript = () =>
     String(mockWriteFileSync.mock.calls.filter(c => String(c[0]).endsWith('start.exp')).at(-1)?.[1] ?? '')
   const agentsJsonWrites = () =>
-    mockWriteFileSync.mock.calls.filter(c => String(c[0]).endsWith('agents.json')).length
+    mockWriteFileSync.mock.calls.filter(c => String(c[0]).endsWith('agents.json'))
+  const recorded = (manager: AgentManager) => manager.getConfig().agents.brain.sessionId
 
   let killSpy: ReturnType<typeof vi.spyOn>
   beforeEach(() => {
@@ -899,113 +900,186 @@ describe('AgentManager — each agent resumes its own session', () => {
     killSpy.mockRestore()
   })
 
-  it('resumes the recorded session by id and leaves agents.json alone', () => {
-    const { manager } = setup(ID_A)
-    expect(manager.start('brain').success).toBe(true)
-    const script = lastExpectScript()
-    expect(script).toContain(`{--resume} {${ID_A}}`)
-    expect(script).not.toContain('--continue')
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_A)
-    expect(agentsJsonWrites()).toBe(0)
+  describe('launch', () => {
+    it('resumes the recorded session by id and leaves agents.json alone', () => {
+      const { manager } = setup(ID_A)
+      expect(manager.start('brain').success).toBe(true)
+      const script = lastExpectScript()
+      expect(script).toContain(`{--resume} {${ID_A}}`)
+      expect(script).not.toContain('--continue')
+      expect(recorded(manager)).toBe(ID_A)
+      expect(agentsJsonWrites()).toHaveLength(0)
+    })
+
+    it('without a recorded session, starts a new one with a pre-assigned id, recorded once its spoke registers', () => {
+      const { manager } = setup()
+      manager.start('brain')
+      expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
+      expect(lastExpectScript()).not.toContain('--continue')
+      expect(recorded(manager)).toBeUndefined()
+      manager.noteSpokeRegistered('brain', ID_B)
+      expect(recorded(manager)).toBe(ID_B)
+      expect(agentsJsonWrites()).toHaveLength(1)
+    })
+
+    it('records the launch id even when the spoke reports none (Claude Code without CLAUDE_CODE_SESSION_ID)', () => {
+      const { manager } = setup()
+      manager.start('brain')
+      manager.noteSpokeRegistered('brain', undefined)
+      expect(recorded(manager)).toBe(ID_B)
+    })
+
+    it('the expect wrapper exits with claude\'s own status, also when claude exits during the prompt window', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      expect(lastExpectScript()).toMatch(/catch \{expect eof\}\nset status \[wait\]\nexit \[lindex \$status 3\]\n?$/)
+    })
   })
 
-  it('without a recorded session, starts a new one with a pre-assigned id and records it', () => {
-    const { manager } = setup()
-    manager.start('brain')
-    expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
-    expect(lastExpectScript()).not.toContain('--continue')
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_B)
-    expect(agentsJsonWrites()).toBe(1)
+  describe('failed launches', () => {
+    it('a launch that fails before its spoke connects (e.g. --resume refused) tries a new session next', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      child.emitExit(1) // "No conversation found" / "running as a background session" → exit 1
+      runAutoRestart()
+      expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
+      expect(recorded(manager)).toBe(ID_A) // not replaced until the new session actually comes up
+    })
+
+    it('once that new session comes up, it becomes the recorded session', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      child.emitExit(1)
+      runAutoRestart()
+      manager.noteSpokeRegistered('brain', ID_B)
+      expect(recorded(manager)).toBe(ID_B)
+    })
+
+    it('if the new session fails too, the next start goes back to the recorded session (it is never lost)', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      child.emitExit(1)
+      runAutoRestart() // new session ID_B
+      child.emitExit(1)
+      child = fakeChild()
+      vi.advanceTimersByTime(10_000) // second backoff step
+      expect(lastExpectScript()).toContain(`{--resume} {${ID_A}}`)
+      expect(recorded(manager)).toBe(ID_A)
+    })
+
+    it('a failed launch of a non-autoStart agent also makes its next (manual) start try a new session', () => {
+      const { manager } = setup(ID_A, { autoStart: false })
+      manager.start('brain')
+      child.emitExit(1)
+      child = fakeChild()
+      manager.start('brain')
+      expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
+    })
+
+    it('a crash after the spoke had connected keeps the session, even if the spoke is gone by exit time', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      manager.noteSpokeRegistered('brain', ID_A)
+      child.emitExit(1) // getConnectedAgents() is already [] when the exit event fires
+      runAutoRestart()
+      expect(lastExpectScript()).toContain(`{--resume} {${ID_A}}`)
+    })
+
+    it('a normal exit (code 0) keeps the session', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      child.emitExit(0)
+      runAutoRestart()
+      expect(lastExpectScript()).toContain(`{--resume} {${ID_A}}`)
+    })
+
+    it('a start that stalls during init (no spoke within 60s) is retried with a new session', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      vi.advanceTimersByTime(60_000) // connect timeout → tree killed
+      child.emitExit(null)
+      runAutoRestart()
+      expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
+    })
+
+    it('a spoke that did register is not treated as stalled, even if disconnected at the 60s check', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      manager.noteSpokeRegistered('brain', ID_A)
+      killSpy.mockClear() // ignore the constructor's orphan cleanup
+      vi.advanceTimersByTime(60_000) // getConnectedAgents() returns [] here
+      expect(killSpy).not.toHaveBeenCalled()
+      expect(child.kill).not.toHaveBeenCalled()
+    })
   })
 
-  it('the expect wrapper exits with claude\'s own status (expect alone always exits 0)', () => {
-    const { manager } = setup(ID_A)
-    manager.start('brain')
-    expect(lastExpectScript()).toMatch(/expect eof\nset status \[wait\]\nexit \[lindex \$status 3\]\n?$/)
+  describe('recording the session a spoke registers with', () => {
+    it('a hub-managed agent keeps the id it was launched with, whatever a (nested) spoke reports', () => {
+      const { manager } = setup(ID_A)
+      manager.start('brain')
+      manager.noteSpokeRegistered('brain', ID_C) // e.g. a nested `claude` inheriting CC2IM_AGENT=1
+      expect(recorded(manager)).toBe(ID_A)
+      expect(agentsJsonWrites()).toHaveLength(0)
+    })
+
+    it('a terminal handoff / foreground start (not hub-managed) records the session its spoke reports', () => {
+      const { manager } = setup(ID_A)
+      manager.noteSpokeRegistered('brain', ID_C)
+      expect(recorded(manager)).toBe(ID_C)
+      expect(agentsJsonWrites()).toHaveLength(1)
+    })
+
+    it('ignores missing, malformed or unchanged reports and unknown agents', () => {
+      const { manager } = setup(ID_A)
+      manager.noteSpokeRegistered('brain', undefined)
+      manager.noteSpokeRegistered('brain', 'not-a-session-id')
+      manager.noteSpokeRegistered('brain', ID_A)
+      manager.noteSpokeRegistered('ghost', ID_C)
+      expect(recorded(manager)).toBe(ID_A)
+      expect(manager.getConfig().agents.ghost).toBeUndefined()
+      expect(agentsJsonWrites()).toHaveLength(0)
+    })
+
+    it('only updates this agent\'s sessionId on disk, keeping out-of-band agents.json edits', () => {
+      const { manager } = setup(ID_A)
+      // e.g. `cc2im agent register other …` wrote agents.json while the hub was running
+      mockReadFileSync.mockReturnValue(JSON.stringify({
+        defaultAgent: 'brain',
+        agents: { ...cfg(ID_A).agents, other: { name: 'other', cwd: '/projects/other', createdAt: '2026-01-02' } },
+      }))
+      manager.noteSpokeRegistered('brain', ID_C)
+      const written = JSON.parse(String(agentsJsonWrites().at(-1)?.[1]))
+      expect(written.agents.other).toBeDefined()
+      expect(written.agents.brain.sessionId).toBe(ID_C)
+    })
+
+    it('a failed write is logged, never thrown (it runs on the spoke-registration path)', () => {
+      const { manager } = setup(ID_A)
+      mockWriteFileSync.mockImplementation(() => { throw new Error('EACCES') })
+      expect(() => manager.noteSpokeRegistered('brain', ID_C)).not.toThrow()
+      expect(recorded(manager)).toBe(ID_C)
+    })
   })
 
-  it('a launch that fails before its spoke connects (e.g. --resume refused) starts a new session next time', () => {
-    const { manager } = setup(ID_A)
-    manager.start('brain')
-    child.emitExit(1) // "No conversation found" / "running as a background session" → exit 1
-    runAutoRestart()
-    expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_B)
-  })
+  describe('terminal handoff', () => {
+    it('resumes the recorded session', () => {
+      const { manager } = setup(ID_A)
+      expect(manager.handoffSessionArgs('brain')).toEqual(['--resume', ID_A])
+      expect(agentsJsonWrites()).toHaveLength(0)
+    })
 
-  it('a failed launch of a non-autoStart agent also makes its next (manual) start use a new session', () => {
-    const ids = [ID_B]
-    const { manager } = makeManager([], {
-      defaultAgent: 'brain', agents: { brain: { ...brainAgent, autoStart: false, sessionId: ID_A } },
-    }, { newSessionId: () => ids.shift()! })
-    child = fakeChild()
-    mockSpawn.mockImplementation(() => child)
-    manager.start('brain')
-    child.emitExit(1)
-    child = fakeChild()
-    manager.start('brain')
-    expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
-  })
+    it('without a recorded session, pre-assigns an id — recorded once the terminal\'s spoke registers', () => {
+      const { manager } = setup()
+      expect(manager.handoffSessionArgs('brain')).toEqual(['--session-id', ID_B])
+      expect(recorded(manager)).toBeUndefined()
+      manager.noteSpokeRegistered('brain', ID_B)
+      expect(recorded(manager)).toBe(ID_B)
+    })
 
-  it('a crash after the spoke had connected keeps the session, even if the spoke is gone by exit time', () => {
-    const { manager } = setup(ID_A)
-    manager.start('brain')
-    manager.noteSpokeRegistered('brain', ID_A)
-    child.emitExit(1) // getConnectedAgents() is already [] when the exit event fires
-    runAutoRestart()
-    expect(lastExpectScript()).toContain(`{--resume} {${ID_A}}`)
-  })
-
-  it('a normal exit (code 0) keeps the session', () => {
-    const { manager } = setup(ID_A)
-    manager.start('brain')
-    child.emitExit(0)
-    runAutoRestart()
-    expect(lastExpectScript()).toContain(`{--resume} {${ID_A}}`)
-  })
-
-  it('a start that stalls during init (no spoke within 60s) is retried with a new session', () => {
-    const { manager } = setup(ID_A)
-    manager.start('brain')
-    vi.advanceTimersByTime(60_000) // connect timeout → tree killed
-    child.emitExit(null)
-    runAutoRestart()
-    expect(lastExpectScript()).toContain(`{--session-id} {${ID_B}}`)
-  })
-
-  it('adopts the session id the spoke reports when it differs from the record', () => {
-    const { manager } = setup(ID_A)
-    manager.noteSpokeRegistered('brain', ID_C)
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_C)
-    expect(agentsJsonWrites()).toBe(1)
-  })
-
-  it('ignores missing, malformed or unchanged reports and unknown agents', () => {
-    const { manager } = setup(ID_A)
-    manager.noteSpokeRegistered('brain', undefined)
-    manager.noteSpokeRegistered('brain', 'not-a-session-id')
-    manager.noteSpokeRegistered('brain', ID_A)
-    manager.noteSpokeRegistered('ghost', ID_C)
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_A)
-    expect(manager.getConfig().agents.ghost).toBeUndefined()
-    expect(agentsJsonWrites()).toBe(0)
-  })
-
-  it('terminal handoff resumes the recorded session', () => {
-    const { manager } = setup(ID_A)
-    expect(manager.handoffSessionArgs('brain')).toEqual(['--resume', ID_A])
-    expect(agentsJsonWrites()).toBe(0)
-  })
-
-  it('terminal handoff pre-assigns and records a session id when none is known', () => {
-    const { manager } = setup()
-    expect(manager.handoffSessionArgs('brain')).toEqual(['--session-id', ID_B])
-    expect(manager.getConfig().agents.brain.sessionId).toBe(ID_B)
-  })
-
-  it('terminal handoff returns null for an unknown agent', () => {
-    const { manager } = setup(ID_A)
-    expect(manager.handoffSessionArgs('ghost')).toBeNull()
+    it('returns null for an unknown agent', () => {
+      const { manager } = setup(ID_A)
+      expect(manager.handoffSessionArgs('ghost')).toBeNull()
+    })
   })
 
   it('rename keeps the agent\'s own session', async () => {
