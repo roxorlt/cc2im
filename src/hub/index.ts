@@ -80,7 +80,10 @@ export async function startHub(options?: { autoStartAgents?: boolean }) {
           agentManager.killForRestart(agentId)
         }
       },
-      onAgentOnline: (agentId: string) => ctx.emit('agent:online', agentId),
+      onAgentOnline: (agentId: string, sessionId?: string) => {
+        agentManager.noteSpokeRegistered(agentId, sessionId)
+        ctx.emit('agent:online', agentId)
+      },
       onAgentOffline: (agentId: string) => ctx.emit('agent:offline', agentId),
     },
   )

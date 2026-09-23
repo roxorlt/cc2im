@@ -41,7 +41,7 @@ export class HubSocketServer {
   private server = createServer()
   private onMessage: (agentId: string, msg: SpokeToHub) => void
   private onEvict?: (agentId: string) => void
-  private onAgentOnline?: (agentId: string) => void
+  private onAgentOnline?: (agentId: string, sessionId?: string) => void
   private onAgentOffline?: (agentId: string) => void
   private heartbeatChecker: ReturnType<typeof setInterval> | null = null
 
@@ -49,7 +49,7 @@ export class HubSocketServer {
     onMessage: (agentId: string, msg: SpokeToHub) => void,
     opts?: {
       onEvict?: (agentId: string) => void
-      onAgentOnline?: (agentId: string) => void
+      onAgentOnline?: (agentId: string, sessionId?: string) => void
       onAgentOffline?: (agentId: string) => void
     },
   ) {
@@ -106,11 +106,13 @@ export class HubSocketServer {
             }
             const rawPid = (frame as any).pid
             const pid = typeof rawPid === 'number' && rawPid > 0 && Number.isInteger(rawPid) ? rawPid : undefined
+            const rawSessionId = (frame as any).sessionId
+            const sessionId = typeof rawSessionId === 'string' ? rawSessionId : undefined
             this.spokes.set(agentId!, { agentId: agentId!, socket, pid })
             this.lastHeartbeat.set(agentId!, Date.now())
-            console.log(`[hub] Spoke registered: ${agentId}`)
+            console.log(`[hub] Spoke registered: ${agentId}${sessionId ? ` (session ${sessionId})` : ''}`)
             this.broadcast({ kind: 'agent_online', agentId: agentId!, timestamp: new Date().toISOString() })
-            this.onAgentOnline?.(agentId!)
+            this.onAgentOnline?.(agentId!, sessionId)
             return
           }
         }

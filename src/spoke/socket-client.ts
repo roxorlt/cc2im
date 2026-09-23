@@ -2,7 +2,14 @@ import { createConnection, Socket } from 'node:net'
 import {
   HUB_SOCKET_PATH, encodeFrame, createFrameParser
 } from '../shared/socket.js'
-import type { HubToSpoke, SpokeToHub } from '../shared/types.js'
+import type { HubToSpoke, SpokeToHub, SpokeToHubRegister } from '../shared/types.js'
+
+/** First frame to the hub. CC passes its session id to MCP servers as CLAUDE_CODE_SESSION_ID;
+ *  reporting it lets the hub record the agent's own session (resumed by id on restart). */
+export function registerFrame(agentId: string, pid: number, env: NodeJS.ProcessEnv = process.env): SpokeToHubRegister {
+  const sessionId = env.CLAUDE_CODE_SESSION_ID
+  return { type: 'register', agentId, pid, ...(sessionId ? { sessionId } : {}) }
+}
 
 const RECONNECT_INTERVAL = 3000
 const MAX_RECONNECT_INTERVAL = 30000
@@ -39,7 +46,7 @@ export class SpokeSocketClient {
       this.connected = true
       this.reconnectDelay = RECONNECT_INTERVAL
       this.disconnectedSince = null  // reset on successful connect
-      socket.write(encodeFrame({ type: 'register', agentId: this.agentId, pid: process.pid }))
+      socket.write(encodeFrame(registerFrame(this.agentId, process.pid)))
       console.log(`[spoke:${this.agentId}] Connected to hub`)
     })
 
