@@ -2,8 +2,8 @@
  * open-terminal — launch a command in a new macOS terminal window.
  *
  * Used by the dashboard's one-click handoff: stop a managed agent, then open
- * a real terminal running `claude --continue …` so the human can take over the
- * session locally. Split into pure builders + one injectable side-effect fn so
+ * a real terminal running `claude --resume <agent's session> …` so the human can
+ * take over the session locally. Split into pure builders + one injectable side-effect fn so
  * everything except the actual GUI window is unit-testable.
  */
 import { spawn } from 'node:child_process'
@@ -66,8 +66,11 @@ export function openInTerminal(cwd: string, command: string, deps: OpenTerminalD
   }
 }
 
-/** The claude command a handed-off terminal should run (matches agent-manager spawn args, sans expect). */
-export function handoffCommand(): string {
+/** The claude command a handed-off terminal should run (matches agent-manager spawn args, sans expect).
+ *  `sessionArgs` come from AgentManager.handoffSessionArgs(): the agent's own session, never
+ *  `--continue` (which would pick up whatever session was last used in the cwd). */
+export function handoffCommand(sessionArgs: string[]): string {
   // CC2IM_AGENT=1 marks the session as cc2im-managed so its spoke registers to the hub.
-  return 'CC2IM_AGENT=1 claude --continue --dangerously-load-development-channels server:cc2im --permission-mode auto --effort max'
+  const session = sessionArgs.map(shellQuote).join(' ')
+  return `CC2IM_AGENT=1 claude ${session ? `${session} ` : ''}--dangerously-load-development-channels server:cc2im --permission-mode auto --effort max`
 }

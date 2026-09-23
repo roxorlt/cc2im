@@ -268,14 +268,15 @@ export function createApiHandler(deps: ApiHandlerDeps) {
           if (!agent) { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end('{"error":"agent not found"}'); return }
 
           const mgr = ctx!.getAgentManager()
-          // Stop it if the hub is managing it, so the terminal's --continue resumes cleanly.
+          // Stop it if the hub is managing it, so the terminal can resume its session cleanly.
           let stopped = false
           if (mgr.isManaged(name)) {
             const s = await mgr.stop(name)
             stopped = s.success
           }
 
-          const result = openTerminalFn(agent.cwd, handoffCommand())
+          // Resume the agent's OWN session in the terminal (not "most recent in cwd")
+          const result = openTerminalFn(agent.cwd, handoffCommand(mgr.handoffSessionArgs(name) ?? []))
           if (!result.ok) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: result.error || 'open terminal failed', stopped }))

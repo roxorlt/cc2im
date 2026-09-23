@@ -93,7 +93,8 @@ export interface SpokeToHubManagement {
 export interface SpokeToHubRegister {
   type: 'register'
   agentId: string
-  pid?: number  // spoke 进程 PID，用于 hub-side kill
+  pid?: number        // spoke 进程 PID，用于 hub-side kill
+  sessionId?: string  // 所在 CC 会话 ID（CLAUDE_CODE_SESSION_ID），hub 据此记录 agent 自己的会话
 }
 
 export type HubToSpoke = HubToSpokeMessage | HubToSpokePermission | HubToSpokeManagementResult
@@ -114,6 +115,7 @@ export interface AgentConfig {
   createdAt: string
   autoStart?: boolean    // hub 启动时自动拉起
   autoMode?: boolean     // 启用 CC auto-mode（自动批准安全操作，默认 true）
+  sessionId?: string     // 该 agent 自己的 CC 会话 ID：启动时 --resume 它，不用 --continue（会抢同目录别的会话）
 }
 
 // --- Monitor 协议（Web UI 观察者） ---

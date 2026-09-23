@@ -88,6 +88,10 @@
 ### ~~4. Agent Session 恢复~~ ✅
 
 - 已实现：agent-manager 启动 CC 时传 `--continue`，自动恢复当前 cwd 最近的 session（无历史则降级为新 session）(2026-04-01)
+- 改为「每个 agent 只恢复自己的 session」(2026-09-23)：`--continue` 恢复的是 cwd 里**最近被用过**的 session，用户在同目录用 `claude agents` 开过的后台 session 会在 hub 重启（尤其开机自启）后被 agent 抢进它的隐藏终端，agents 界面随即报「Can't open — this session is running in another terminal」。现在 `agents.json` 为每个 agent 记录 `sessionId`，启动用 `--resume <id>`，新会话用 `--session-id <新 id>` 预先定好编号，等它的 spoke 注册成功后才写进记录（启动失败时下次仍能回到原 session）。hub 托管的 agent 以启动时的编号为准（agent 自己再起的 claude 会继承 `CC2IM_AGENT=1` 也来注册，不采信它的上报）；终端接力 / 前台启动这类非托管会话按 spoke 上报的 `CLAUDE_CODE_SESSION_ID` 记录。写记录只改该 agent 的 `sessionId` 字段，不覆盖 CLI 在 hub 运行期间对 agents.json 的修改
+  - 顺带修复：expect 包装原来拿不到 claude 的真实退出码——claude 在前 60 秒（确认框处理窗口）内退出时 expect 报错、一律以 1 退出（正常退出也被当成启动失败），60 秒后退出则一律是 0。现在 expect 如实传回退出码；「启动失败」改为看本次启动的 spoke 是否注册过，而不是退出那一刻是否在线（spoke 通常先于 expect 退出）
+  - 已知现象：Claude Code 2.1.280 的新会话在收到第一条消息之前不生成对话记录文件，所以从没收到过消息的 agent 下次重启时按编号恢复会报「No conversation found」，cc2im 随即换一个新会话（这类会话本来就是空的，没有内容可丢）；日志里会多一行 exited before connecting
+  - 升级注意：agents.json 里没有 `sessionId` 的 agent，升级后第一次启动会开新 session。想保留原对话，重启 hub 前手动写入它正在用的 session 编号（不要简单取目录里最新的 transcript——那可能正是被抢的用户会话）
 
 ### 5. Cron 可观测性（Bad Case: xlist-scraper 静默失败）
 

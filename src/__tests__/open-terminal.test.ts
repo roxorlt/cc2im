@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto'
 
 import { shellQuote, buildTerminalScript, resolveTerminalApp, openInTerminal, handoffCommand } from '../shared/open-terminal.js'
 
+const SESSION_ID = '11111111-2222-4333-8444-555555555555'
+
 describe('open-terminal primitives', () => {
   it('shellQuote wraps and escapes single quotes', () => {
     expect(shellQuote('/a/b')).toBe(`'/a/b'`)
@@ -53,13 +55,15 @@ describe('open-terminal primitives', () => {
     expect(res).toMatchObject({ ok: false, error: 'boom' })
   })
 
-  it('handoffCommand carries --continue + channel + flags', () => {
-    expect(handoffCommand()).toContain('claude --continue')
-    expect(handoffCommand()).toContain('server:cc2im')
+  it('handoffCommand resumes the agent\'s own session (never --continue) + channel + flags', () => {
+    const cmd = handoffCommand(['--resume', SESSION_ID])
+    expect(cmd).toContain(`claude '--resume' '${SESSION_ID}' `)
+    expect(cmd).not.toContain('--continue')
+    expect(cmd).toContain('server:cc2im')
   })
 
   it('handoffCommand marks the session as a managed agent (spoke identity guard)', () => {
-    expect(handoffCommand()).toMatch(/^CC2IM_AGENT=1 claude /)
+    expect(handoffCommand(['--resume', SESSION_ID])).toMatch(/^CC2IM_AGENT=1 claude /)
   })
 })
 
@@ -90,7 +94,11 @@ describe('POST /api/agents/:name/handoff', () => {
   const openTerminalFn = vi.fn(() => ({ ok: true as const, app: 'Ghostty', scriptPath: '/s', command: 'claude' }))
 
   const ctx = {
-    getAgentManager: () => ({ isManaged: (n: string) => n === 'brain', stop }),
+    getAgentManager: () => ({
+      isManaged: (n: string) => n === 'brain',
+      stop,
+      handoffSessionArgs: (n: string) => (n === 'brain' ? ['--resume', SESSION_ID] : null),
+    }),
   } as unknown as HubContext
 
   beforeAll(async () => {
@@ -116,7 +124,9 @@ describe('POST /api/agents/:name/handoff', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ ok: true, stopped: true, app: 'Ghostty', cwd: '/Users/x/brain' })
     expect(stop).toHaveBeenCalledWith('brain')
-    expect(openTerminalFn).toHaveBeenCalledWith('/Users/x/brain', expect.stringContaining('claude --continue'))
+    // resumes brain's own session — not "the most recent session in /Users/x/brain"
+    expect(openTerminalFn).toHaveBeenCalledWith('/Users/x/brain', expect.stringContaining(`claude '--resume' '${SESSION_ID}'`))
+    expect(openTerminalFn).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('--continue'))
   })
 
   it('404 for unknown agent', async () => {
