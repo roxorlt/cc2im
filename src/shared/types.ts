@@ -114,6 +114,7 @@ export interface AgentConfig {
   createdAt: string
   autoStart?: boolean    // hub 启动时自动拉起
   autoMode?: boolean     // 启用 CC auto-mode（自动批准安全操作，默认 true）
+  sessionId?: string     // 该 agent 自己的 CC 会话 ID：启动时 --resume 它，不用 --continue（会抢同目录别的会话）
 }
 
 // --- Monitor 协议（Web UI 观察者） ---

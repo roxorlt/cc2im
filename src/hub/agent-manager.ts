@@ -6,10 +6,12 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { spawn, execSync, ChildProcess } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { SOCKET_DIR } from '../shared/socket.js'
 import { ensureMcpJson } from '../shared/mcp-config.js'
 import { DEFAULT_CLAUDE_ARGS, mergeClaudeArgs } from '../shared/claude-args.js'
 import { isValidAgentName } from '../shared/agent-name.js'
+import { isSessionId, sessionLaunch } from '../shared/agent-session.js'
 import type { AgentConfig, AgentsConfig } from '../shared/types.js'
 
 const AGENTS_JSON_PATH = join(SOCKET_DIR, 'agents.json')
@@ -20,7 +22,7 @@ const MAX_RESTART_ATTEMPTS = 5
 const RESTART_WINDOW_MS = 5 * 60_000 // 5 min — reset counter if stable for this long
 const CONNECT_TIMEOUT_MS = 60_000     // if spoke doesn't connect within this window after spawn,
                                       // assume init got stuck (e.g. unknown interactive prompt)
-                                      // and restart without --continue to unblock
+                                      // and restart with a new session to unblock
 
 export class AgentManager {
   private processes = new Map<string, ChildProcess>()
@@ -30,13 +32,21 @@ export class AgentManager {
   private stoppedManually = new Set<string>()  // agents stopped by user intent
   private shuttingDown = false                  // suppress auto-restart during hub shutdown
   private restartAttempts = new Map<string, { count: number; firstAt: number }>() // backoff tracking
-  private skipContinueOnce = new Set<string>()  // agents to start without --continue on next spawn
-                                                // (used when previous session stalled during init)
+  private freshSessionOnce = new Set<string>()  // agents to start in a new session on next spawn
+                                                // (the previous launch failed or stalled during init)
+  private connectedOnce = new Set<string>()     // agents whose current spawn has registered its spoke
+                                                // (the spoke may already be gone when 'exit' fires)
+  private newSessionId: () => string
 
-  constructor(getConnectedAgents: () => string[], onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void) {
+  constructor(
+    getConnectedAgents: () => string[],
+    onEvent?: (kind: string, agentId: string, extra?: Record<string, any>) => void,
+    opts?: { newSessionId?: () => string },
+  ) {
     this.config = this.loadConfig()
     this.getConnectedAgents = getConnectedAgents
     this.onEvent = onEvent
+    this.newSessionId = opts?.newSessionId ?? randomUUID
     this.killOrphanProcesses()
   }
 
@@ -155,7 +165,7 @@ export class AgentManager {
       await this.stop(oldName)
       // Same stop→start race guard restart() uses: wait for the old spoke's
       // socket to close (proxy for the detached claude having exited) so the
-      // new claude --continue doesn't overlap the old one on the same cwd.
+      // new claude --resume doesn't overlap the old one on the same session.
       await this.waitForDisconnect(oldName, 6000)
     }
 
@@ -256,14 +266,23 @@ export class AgentManager {
     const agentDir = join(SOCKET_DIR, 'agents', name)
     mkdirSync(agentDir, { recursive: true })
 
-    // Skip --continue if the previous spawn stalled during init — start fresh instead
-    const skipContinue = this.skipContinueOnce.delete(name)
-    if (skipContinue) {
-      console.log(`[agent-manager] "${name}": starting without --continue (previous session stalled during init)`)
+    // Resume this agent's OWN session by id. Never `--continue`: it resumes the most recent
+    // session in cwd, i.e. whatever the user last touched there (e.g. a session opened from
+    // `claude agents`, which then refuses to open it). A new session gets its id up front
+    // so the next restart resumes exactly it.
+    const fresh = this.freshSessionOnce.delete(name)
+    const launch = sessionLaunch(agent.sessionId, fresh, this.newSessionId)
+    if (launch.resumed) {
+      console.log(`[agent-manager] "${name}": resuming own session ${launch.sessionId}`)
+    } else {
+      console.log(`[agent-manager] "${name}": starting new session ${launch.sessionId}${fresh ? ' (previous launch failed or stalled during init)' : ''}`)
+      agent.sessionId = launch.sessionId
+      this.saveConfig()
     }
+    this.connectedOnce.delete(name)
     const claudeArgs = [
       '--dangerously-load-development-channels', 'server:cc2im',
-      ...(skipContinue ? [] : ['--continue']),  // resume most recent session unless last attempt stalled
+      ...launch.args,  // --resume <own id> | --session-id <new id>
       ...mergeClaudeArgs(DEFAULT_CLAUDE_ARGS, agent.claudeArgs || []),  // permission-mode/allowedTools/effort defaults + per-agent override
     ]
 
@@ -286,7 +305,7 @@ export class AgentManager {
       '',
       '# Auto-handle initialization prompts:',
       '#   - Workspace trust prompt ("confirm" text)',
-      '#   - "Resume from summary" session picker (shown by --continue for old/large sessions)',
+      '#   - "Resume from summary" session picker (shown by --resume for old/large sessions)',
       '# exp_continue keeps listening so multiple prompts in sequence are all handled.',
       '# If 60s passes with no further known prompts, assume CC is up and switch to eof wait.',
       'set timeout 60',
@@ -304,9 +323,12 @@ export class AgentManager {
       '  timeout {}',
       '}',
       '',
-      '# Keep CC running until it exits',
+      '# Keep CC running until it exits, then exit with CC\'s own status: expect alone',
+      '# always exits 0, which hid failed launches (e.g. --resume refused → exit 1).',
       'set timeout -1',
       'expect eof',
+      'set status [wait]',
+      'exit [lindex $status 3]',
     ].join('\n')
     writeFileSync(expectScriptPath, expectScript + '\n')
 
@@ -328,18 +350,19 @@ export class AgentManager {
 
     // Fallback: if spoke doesn't connect within CONNECT_TIMEOUT_MS, assume init got stuck
     // (e.g. an unknown interactive prompt blocked CC) and kill the process tree.
-    // On next auto-restart, --continue is skipped so CC starts with a fresh session.
+    // On next auto-restart, CC starts in a new session.
     const connectTimer = setTimeout(() => {
       if (!this.processes.has(name)) return                         // already exited/stopped
       if (this.getConnectedAgents().includes(name)) return          // healthy, no action needed
-      console.warn(`[agent-manager] "${name}" did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — killing to restart without --continue`)
-      this.skipContinueOnce.add(name)
+      console.warn(`[agent-manager] "${name}" did not connect within ${CONNECT_TIMEOUT_MS / 1000}s — killing to restart in a new session`)
+      this.freshSessionOnce.add(name)
       this.killProcessTree(child, name)
     }, CONNECT_TIMEOUT_MS)
 
     child.on('exit', (code) => {
       clearTimeout(connectTimer)
-      const wasConnected = this.getConnectedAgents().includes(name)
+      // The spoke usually disconnects before this fires, so also check whether it ever registered.
+      const wasConnected = this.connectedOnce.has(name) || this.getConnectedAgents().includes(name)
       console.log(`[agent-manager] Agent "${name}" exited (code ${code})`)
       this.processes.delete(name)
       this.savePgids()
@@ -353,15 +376,17 @@ export class AgentManager {
         return
       }
 
+      // If CC exited with non-zero code before ever connecting, the launch itself failed —
+      // e.g. `--resume` refused because the transcript is gone ("No conversation found") or
+      // the session is held by a background session. Start a new session on next start
+      // (auto-restart or a manual one).
+      if (!wasConnected && code !== 0 && code !== null && !fresh) {
+        console.log(`[agent-manager] "${name}" exited before connecting — will start a new session on next start`)
+        this.freshSessionOnce.add(name)
+      }
+
       const agentConfig = this.config.agents[name]
       if (!agentConfig?.autoStart) return
-
-      // If CC exited fast with non-zero code before ever connecting, --continue probably failed
-      // (no prior session for a new agent). Skip --continue on next restart to start fresh.
-      if (!wasConnected && code !== 0 && code !== null && !skipContinue) {
-        console.log(`[agent-manager] "${name}" exited before connecting — will skip --continue on next restart`)
-        this.skipContinueOnce.add(name)
-      }
 
       // Backoff: track consecutive restarts within time window
       const now = Date.now()
@@ -424,6 +449,32 @@ export class AgentManager {
       // SIGTERM the entire process group
       this.killProcessTree(child, name, 'SIGTERM')
     })
+  }
+
+  /** Called when an agent's spoke registers. Marks the current spawn as connected and adopts
+   *  the session id the spoke reports (CLAUDE_CODE_SESSION_ID), so the record follows the
+   *  session CC actually runs — also for handed-off terminals. */
+  noteSpokeRegistered(name: string, sessionId?: string) {
+    const agent = this.config.agents[name]
+    if (!agent) return
+    this.connectedOnce.add(name)
+    if (!isSessionId(sessionId) || sessionId === agent.sessionId) return
+    console.log(`[agent-manager] "${name}": session is now ${sessionId} (was ${agent.sessionId ?? 'unrecorded'})`)
+    agent.sessionId = sessionId
+    this.saveConfig()
+  }
+
+  /** Session flags for a terminal handoff: resume this agent's own session (pre-assigning and
+   *  recording an id if none is known), so the terminal never picks up another session in cwd. */
+  handoffSessionArgs(name: string): string[] | null {
+    const agent = this.config.agents[name]
+    if (!agent) return null
+    const launch = sessionLaunch(agent.sessionId, false, this.newSessionId)
+    if (!launch.resumed) {
+      agent.sessionId = launch.sessionId
+      this.saveConfig()
+    }
+    return launch.args
   }
 
   list(): Array<{
